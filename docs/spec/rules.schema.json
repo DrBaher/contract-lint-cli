@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DrBaher/contract-lint-cli/blob/main/docs/spec/rules.schema.json",
+  "title": "contract-lint rule catalog schema (v1)",
+  "description": "The machine-readable rule catalog emitted by `contract-lint rules --json`. This is the source of truth agents read to discover rule ids, default severities, and which rules ship enabled — instead of hardcoding rule names. Parallels extract-cli's `fields`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "version", "rules"],
+  "properties": {
+    "tool": { "const": "contract-lint" },
+    "version": { "type": "string" },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "default_enabled", "description"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "severity": { "enum": ["error", "warning"] },
+          "default_enabled": { "type": "boolean" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  }
+}

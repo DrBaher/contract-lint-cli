@@ -1,0 +1,21 @@
+{
+  "//": "Example contract-lint config. Copy to .contract-lint.json at your project root,",
+  "//enable": "or to ~/.config/contract-ops/contract-lint.json to apply across the whole suite.",
+  "//precedence": "suite-wide config < project .contract-lint.json < --config PATH < --enable/--disable flags.",
+  "//discover": "the project file is found by walking up from the linted file's directory (like git).",
+
+  "rules": {
+    "//1": "Set a rule to false to disable it, or to an object to tweak it.",
+    "undefined-term": { "enabled": true },
+    "placeholder": { "enabled": true, "severity": "error" },
+    "numbering": { "enabled": true, "severity": "warning" },
+    "party-consistency": false
+  },
+
+  "//2": "Drop any finding whose MESSAGE matches one of these regexes (the offending term,",
+  "//2b": "placeholder token, cross-ref, party name, or date appears in the message).",
+  "ignore": [
+    "Force Majeure",
+    "Annex [0-9]"
+  ]
+}

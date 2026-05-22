@@ -1,0 +1,76 @@
+{
+  "tool": "contract-lint",
+  "version": "X.Y.Z",
+  "path": "flawed_msa.md",
+  "format": "markdown",
+  "fail_on": "error",
+  "ok": false,
+  "exit_code": 1,
+  "summary": {
+    "error": 2,
+    "warning": 5,
+    "total": 7,
+    "by_rule": {
+      "unused-definition": 1,
+      "placeholder": 1,
+      "party-consistency": 1,
+      "numbering": 1,
+      "broken-xref": 1,
+      "double-definition": 1,
+      "date-sanity": 1
+    }
+  },
+  "findings": [
+    {
+      "rule": "unused-definition",
+      "severity": "warning",
+      "message": "defined term 'Severance Fee' is never used after its definition",
+      "line": 10,
+      "excerpt": "\"Severance Fee\" means the amount payable on early termination."
+    },
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder '{{statement_of_work}}' \u2014 unfilled before signing",
+      "line": 14,
+      "column": 60,
+      "excerpt": "Globex Corporation shall deliver the services described in {{statement_of_work}}. Payment"
+    },
+    {
+      "rule": "party-consistency",
+      "severity": "warning",
+      "message": "party name 'Globex Corp' is a variant spelling of 'Globex Corporation'",
+      "line": 15,
+      "excerpt": "follows the schedule in Section 5.2. Globex Corp. may use subcontractors."
+    },
+    {
+      "rule": "numbering",
+      "severity": "warning",
+      "message": "section numbering jumps from 2 to 4 (missing 3)",
+      "line": 17,
+      "excerpt": ""
+    },
+    {
+      "rule": "broken-xref",
+      "severity": "error",
+      "message": "cross-reference to Section 9.3 which is not present in the document",
+      "line": 19,
+      "column": 53,
+      "excerpt": "Invoices are due within thirty days, as detailed in Section 9.3."
+    },
+    {
+      "rule": "double-definition",
+      "severity": "warning",
+      "message": "defined term 'Confidential Information' is defined 2\u00d7 (first at line 8)",
+      "line": 23,
+      "excerpt": "\"Confidential Information\" means information that a party marks confidential. The parties"
+    },
+    {
+      "rule": "date-sanity",
+      "severity": "warning",
+      "message": "expiration/termination date 2026-01-01 precedes the effective date 2026-02-01",
+      "line": 28,
+      "excerpt": "This Agreement is effective as of February 1, 2026 and expires on January 1, 2026."
+    }
+  ]
+}

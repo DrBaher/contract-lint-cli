@@ -1,0 +1,75 @@
+{
+  "tool": "contract-lint",
+  "version": "X.Y.Z",
+  "path": "placeholders.md",
+  "format": "markdown",
+  "fail_on": "error",
+  "ok": false,
+  "exit_code": 1,
+  "summary": {
+    "error": 7,
+    "warning": 0,
+    "total": 7,
+    "by_rule": {
+      "placeholder": 7
+    }
+  },
+  "findings": [
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder '[Party Name]' \u2014 unfilled before signing",
+      "line": 3,
+      "column": 27,
+      "excerpt": "This Agreement is between [Party Name] and {{counterparty}}."
+    },
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder '{{counterparty}}' \u2014 unfilled before signing",
+      "line": 3,
+      "column": 44,
+      "excerpt": "This Agreement is between [Party Name] and {{counterparty}}."
+    },
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder '<SCOPE OF WORK>' \u2014 unfilled before signing",
+      "line": 7,
+      "column": 28,
+      "excerpt": "The provider shall deliver <SCOPE OF WORK> by the deadline. Fees are TBD."
+    },
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder 'TBD' \u2014 unfilled before signing",
+      "line": 7,
+      "column": 70,
+      "excerpt": "The provider shall deliver <SCOPE OF WORK> by the deadline. Fees are TBD."
+    },
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder '__________' \u2014 unfilled before signing",
+      "line": 11,
+      "column": 12,
+      "excerpt": "Signed by: __________"
+    },
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder '[\u2022]' \u2014 unfilled before signing",
+      "line": 13,
+      "column": 10,
+      "excerpt": "Witness: [\u2022]"
+    },
+    {
+      "rule": "placeholder",
+      "severity": "error",
+      "message": "leftover placeholder '<ADDENDUM>' \u2014 unfilled before signing",
+      "line": 15,
+      "column": 25,
+      "excerpt": "Notes: see the attached <ADDENDUM>."
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+name: Publish
+
+# Publishes to PyPI via Trusted Publishing (OIDC) when a v* tag is pushed.
+# Requires a one-time PyPI "trusted publisher" setup for this repo + environment.
+# The manual (workflow_dispatch) trigger verifies that setup without cutting a new
+# version: skip-existing means an already-published version is skipped, not re-uploaded.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Verify the tag matches the package version
+        if: github.ref_type == 'tag'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(python -c 'import contract_lint_cli as c; print(c.__version__)')"
+          test "$TAG" = "$PKG" || { echo "tag $TAG != version $PKG"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/contract-lint
+    permissions:
+      id-token: write   # mandatory for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true

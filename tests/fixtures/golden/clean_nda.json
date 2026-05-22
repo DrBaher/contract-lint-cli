@@ -1,0 +1,16 @@
+{
+  "tool": "contract-lint",
+  "version": "X.Y.Z",
+  "path": "clean_nda.md",
+  "format": "markdown",
+  "fail_on": "error",
+  "ok": true,
+  "exit_code": 0,
+  "summary": {
+    "error": 0,
+    "warning": 0,
+    "total": 0,
+    "by_rule": {}
+  },
+  "findings": []
+}

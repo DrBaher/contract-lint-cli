@@ -1,0 +1,59 @@
+{
+  "tool": "contract-lint",
+  "version": "X.Y.Z",
+  "path": "numbering_dates.md",
+  "format": "markdown",
+  "fail_on": "error",
+  "ok": false,
+  "exit_code": 1,
+  "summary": {
+    "error": 1,
+    "warning": 4,
+    "total": 5,
+    "by_rule": {
+      "numbering": 2,
+      "broken-xref": 1,
+      "party-consistency": 1,
+      "date-sanity": 1
+    }
+  },
+  "findings": [
+    {
+      "rule": "numbering",
+      "severity": "warning",
+      "message": "duplicate section number 1 (also at line 3)",
+      "line": 7,
+      "excerpt": ""
+    },
+    {
+      "rule": "numbering",
+      "severity": "warning",
+      "message": "section numbering jumps from 1 to 3 (missing 2)",
+      "line": 11,
+      "excerpt": ""
+    },
+    {
+      "rule": "broken-xref",
+      "severity": "error",
+      "message": "cross-reference to Article IV which is not present in the document",
+      "line": 13,
+      "column": 26,
+      "excerpt": "Rent is due monthly. See Article IV for the renewal terms."
+    },
+    {
+      "rule": "party-consistency",
+      "severity": "warning",
+      "message": "party name 'HOOLI Inc' is a variant spelling of 'Hooli Inc'",
+      "line": 17,
+      "excerpt": "Signed on February 30, 2026 by HOOLI Inc."
+    },
+    {
+      "rule": "date-sanity",
+      "severity": "warning",
+      "message": "malformed or impossible date 'February 30, 2026'",
+      "line": 17,
+      "column": 11,
+      "excerpt": "Signed on February 30, 2026 by HOOLI Inc."
+    }
+  ]
+}
