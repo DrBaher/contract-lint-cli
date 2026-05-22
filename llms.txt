@@ -48,8 +48,11 @@ undefined-term     (warning, off by default)  a capitalized term used like a def
 unused-definition  (warning) a term defined but never used afterward
 double-definition  (warning) a term defined more than once
 numbering          (warning) gaps or duplicates in a heading-number sequence
+duplicate-heading  (warning) two headings with the same title
 party-consistency  (warning) party names used with variant spellings
 date-sanity        (warning) impossible/inconsistent dates (malformed; expiration before effective)
+number-consistency (warning) a written amount that disagrees with its figure, e.g. thirty (45) days
+signature-block    (warning, off by default)  a complete-looking contract with no signature/execution block
 ```
 
 ## Agent-safe usage

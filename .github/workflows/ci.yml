@@ -66,6 +66,43 @@ jobs:
       - name: Validate --json / SARIF / rules output against docs/spec (offline)
         run: python -m pytest tests/test_schema_conformance.py -q
 
+  action-dogfood:
+    name: action (dogfood on fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the working-tree build
+        run: python -m pip install -e .
+      - name: Run the composite action against the fixture corpus
+        uses: ./
+        with:
+          paths: tests/fixtures/corpus
+          fail-on: none          # the corpus is deliberately flawed; just prove the action runs
+          upload-sarif: false     # don't push intentional findings into code-scanning
+      - name: SARIF was produced
+        run: test -s contract-lint.sarif && echo "merged SARIF OK"
+
+  mcp:
+    name: MCP server (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install contract-lint (working tree) + MCP deps
+        run: |
+          python -m pip install -e .
+          cd mcp && npm install --no-audit --no-fund
+      - name: Protocol tests
+        run: cd mcp && CONTRACT_LINT_BIN="$(command -v contract-lint)" npm test
+
   build-smoke:
     name: build + wheel smoke install
     runs-on: ubuntu-latest

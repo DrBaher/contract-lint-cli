@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "contract-lint"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lint a contract for internal-consistency defects — leftover placeholders, broken cross-references, undefined/unused defined terms, numbering gaps, party-name and date inconsistencies — with CI-gateable exit codes. Deterministic, stdlib-only. Also composes with the contract-ops suite."
 readme = "README.md"
 requires-python = ">=3.9"

@@ -22,6 +22,10 @@ def findings(text: str) -> List[cl.Finding]:
     return cl.lint(cl.analyze(text, "markdown"), cfg)
 
 
+def findings_default(text: str) -> List[cl.Finding]:
+    return cl.lint(cl.analyze(text, "markdown"), cl._default_config())
+
+
 def test_placeholder_variants() -> None:
     text = (
         "Brackets [Party Name] and {{mustache}} and <ANGLE> and ____ blank "
@@ -91,12 +95,37 @@ def test_date_sanity_malformed_and_inconsistent() -> None:
     assert any("precedes" in f.message for f in findings(inconsistent) if f.rule == "date-sanity")
 
 
+def test_number_consistency() -> None:
+    bad = "Payment is due within thirty (45) days of the invoice date.\n"
+    fs = [f for f in findings(bad) if f.rule == "number-consistency"]
+    assert len(fs) == 1 and "30" in fs[0].message and "45" in fs[0].message
+    good = "Payment is due within thirty (30) days; warranty lasts one (1) year.\n"
+    assert "number-consistency" not in {f.rule for f in findings(good)}
+
+
+def test_duplicate_heading() -> None:
+    text = "# T\n\n## 1. Quantity\nstuff\n\n## 3. Quantity\nmore\n"
+    fs = [f for f in findings(text) if f.rule == "duplicate-heading"]
+    assert len(fs) == 1 and "Quantity" in fs[0].message
+
+
+def test_signature_block_opt_in() -> None:
+    no_block = "# T\n\n## 1. A\nx\n\n## 2. B\ny\n\n## 3. C\nz\n"
+    assert "signature-block" in fired(no_block)                       # fires when enabled
+    assert "signature-block" not in {f.rule for f in findings_default(no_block)}  # off by default
+    with_block = no_block + "\nIN WITNESS WHEREOF, the parties sign. By: Jane Doe\n"
+    assert "signature-block" not in fired(with_block)
+    short = "# T\n\n## 1. A\nonly one section\n"                       # <3 headings: never nags
+    assert "signature-block" not in fired(short)
+
+
 def test_clean_text_silent() -> None:
     text = (
         "# Agreement\n\n## 1. Term\nThis section is clean.\n\n"
-        "## 2. Scope\nNothing to flag here at all.\n"
+        "## 2. Scope\nNothing to flag here at all.\n\n"
+        "## 3. Signatures\nIN WITNESS WHEREOF, the parties have executed this. By: Jane Doe\n"
     )
-    assert findings(text) == [] or fired(text) <= set()  # no findings
+    assert fired(text) == set()  # no findings even with every rule enabled
 
 
 def test_every_rule_has_unique_id_and_valid_severity() -> None:

@@ -16,12 +16,12 @@ def _demo_findings():
 
 
 def test_sarif_validates_against_schema(sarif_schema: dict) -> None:
-    sarif = cl.build_sarif("demo-contract.md", _demo_findings())
+    sarif = cl.build_sarif([("demo-contract.md", _demo_findings())])
     assert_valid(sarif, sarif_schema)
 
 
 def test_sarif_top_level() -> None:
-    sarif = cl.build_sarif("c.md", _demo_findings())
+    sarif = cl.build_sarif([("c.md", _demo_findings())])
     assert sarif["version"] == "2.1.0"
     assert "sarif" in sarif["$schema"]
     run = sarif["runs"][0]
@@ -31,7 +31,7 @@ def test_sarif_top_level() -> None:
 
 def test_sarif_results_map_findings() -> None:
     findings = _demo_findings()
-    run = cl.build_sarif("c.md", findings)["runs"][0]
+    run = cl.build_sarif([("c.md", findings)])["runs"][0]
     assert len(run["results"]) == len(findings)
     for f, r in zip(findings, run["results"]):
         assert r["ruleId"] == f"contract-lint/{f.rule}"
@@ -40,7 +40,7 @@ def test_sarif_results_map_findings() -> None:
 
 
 def test_sarif_rule_metadata_levels() -> None:
-    run = cl.build_sarif("c.md", [])["runs"][0]
+    run = cl.build_sarif([("c.md", [])])["runs"][0]
     by_id = {r["id"]: r for r in run["tool"]["driver"]["rules"]}
     for r in cl.RULES:
         meta = by_id[f"contract-lint/{r.id}"]

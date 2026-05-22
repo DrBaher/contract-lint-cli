@@ -1,0 +1,47 @@
+{
+  "name": "contract-lint-mcp",
+  "version": "0.1.0",
+  "description": "MCP (Model Context Protocol) server wrapping contract-lint for agent pipelines. Three tools: lint_contract, list_rules, lint_demo. Stdio transport. Part of the contract-ops CLI suite.",
+  "type": "module",
+  "bin": {
+    "contract-lint-mcp": "./contract-lint-mcp.mjs"
+  },
+  "main": "./contract-lint-mcp.mjs",
+  "exports": {
+    ".": "./contract-lint-mcp.mjs"
+  },
+  "files": [
+    "contract-lint-mcp.mjs",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/test_*.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "legal",
+    "legal-tech",
+    "contracts",
+    "lint",
+    "contract-ops"
+  ],
+  "author": "DrBaher",
+  "license": "MIT",
+  "homepage": "https://github.com/DrBaher/contract-lint-cli/tree/main/mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DrBaher/contract-lint-cli.git",
+    "directory": "mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/DrBaher/contract-lint-cli/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}

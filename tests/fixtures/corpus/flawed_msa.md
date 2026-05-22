@@ -16,9 +16,9 @@ follows the schedule in Section 5.2. Globex Corp. may use subcontractors.
 
 ## 4. Payment
 
-Invoices are due within thirty days, as detailed in Section 9.3.
+Invoices are due within thirty (45) days, as detailed in Section 9.3.
 
-## 5. Confidentiality
+## 5. Services
 
 "Confidential Information" means information that a party marks confidential. The parties
 shall protect Confidential Information as set out in Section 5.2.

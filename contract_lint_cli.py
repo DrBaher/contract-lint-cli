@@ -33,7 +33,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -872,6 +872,105 @@ def rule_date_sanity(a: Analysis) -> List[Finding]:
     return out
 
 
+_NUMBER_ONES = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
+    "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_NUMBER_SCALES = {"thousand": 1000, "million": 1000000, "billion": 1000000000}
+_NUMBER_WORDS = set(_NUMBER_ONES) | set(_NUMBER_SCALES) | {"hundred"}
+# Longest-first alternation so "nineteen" wins over "nine", etc.
+_NUMWORD_ALT = "|".join(sorted((re.escape(w) for w in _NUMBER_WORDS), key=len, reverse=True))
+_NUMBER_SEQ_RE = re.compile(
+    r"\b((?:" + _NUMWORD_ALT + r")(?:[\s\-]+(?:and|" + _NUMWORD_ALT + r"))*)\s*\((\d{1,12})\)",
+    re.IGNORECASE,
+)
+
+
+def _words_to_int(phrase: str) -> Optional[int]:
+    """Parse an English number phrase (e.g. 'twenty-five', 'one hundred and fifty')
+    to an int, or None if any token isn't a number word."""
+    tokens = [t for t in re.split(r"[\s\-]+", phrase.lower().strip()) if t and t != "and"]
+    if not tokens:
+        return None
+    total = 0
+    current = 0
+    for t in tokens:
+        if t in _NUMBER_ONES:
+            current += _NUMBER_ONES[t]
+        elif t == "hundred":
+            current = (current or 1) * 100
+        elif t in _NUMBER_SCALES:
+            total += (current or 1) * _NUMBER_SCALES[t]
+            current = 0
+        else:
+            return None
+    return total + current
+
+
+def rule_number_consistency(a: Analysis) -> List[Finding]:
+    """A number written out in words next to its figure in parentheses, where the two
+    disagree — the classic 'thirty (45) days' drafting defect. High precision: only the
+    tight `<words> (<digits>)` idiom is checked."""
+    out: List[Finding] = []
+    for i, line in enumerate(a.lines, 1):
+        for m in _NUMBER_SEQ_RE.finditer(line):
+            words, digits = m.group(1), int(m.group(2))
+            value = _words_to_int(words)
+            if value is not None and value != digits:
+                out.append(Finding(
+                    "number-consistency", SEVERITY_WARNING,
+                    f"written amount '{words.strip()}' ({value}) does not match the figure ({digits})",
+                    i, a.excerpt(i), m.start() + 1,
+                ))
+    return out
+
+
+def rule_duplicate_heading(a: Analysis) -> List[Finding]:
+    """Two headings with the same title — usually a copy-paste left unedited. (Distinct
+    from `numbering`, which flags repeated heading *numbers*.)"""
+    seen: Dict[str, Tuple[int, str]] = {}
+    out: List[Finding] = []
+    for h in a.headings:
+        title = h.title.strip()
+        key = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+        if len(key) < 3:
+            continue
+        if key in seen:
+            out.append(Finding(
+                "duplicate-heading", SEVERITY_WARNING,
+                f"heading {title!r} duplicates an earlier heading (first at line {seen[key][0]})",
+                h.line, a.excerpt(h.line),
+            ))
+        else:
+            seen[key] = (h.line, title)
+    return out
+
+
+_SIGNATURE_RE = re.compile(
+    r"in\s+witness\s+whereof|\bsignature\b|\bsigned\b|\bby:|name:|title:|/s/|"
+    r"hereunto\s+set|duly\s+authoriz|executed\s+(?:this|as\s+of|by)",
+    re.IGNORECASE,
+)
+
+
+def rule_signature_block(a: Analysis) -> List[Finding]:
+    """A complete-looking contract with no signature/execution block. Off by default
+    (most useful as a final pre-signature check; noisy on clauses/fragments). Only fires
+    when the document has at least three titled headings."""
+    if sum(1 for h in a.headings if h.title) < 3:
+        return []
+    if _SIGNATURE_RE.search(a.text):
+        return []
+    return [Finding(
+        "signature-block", SEVERITY_WARNING,
+        "no signature/execution block found (expected e.g. 'IN WITNESS WHEREOF', 'By:', 'Name:', 'Title:')",
+        max(len(a.lines), 1), "",
+    )]
+
+
 # ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
@@ -907,12 +1006,22 @@ RULES: Tuple[Rule, ...] = (
     Rule("numbering", SEVERITY_WARNING, True,
          "Gaps or duplicates in a heading-number sequence.",
          rule_numbering),
+    Rule("duplicate-heading", SEVERITY_WARNING, True,
+         "Two headings with the same title (often a copy-paste left unedited).",
+         rule_duplicate_heading),
     Rule("party-consistency", SEVERITY_WARNING, True,
          "Defined party names used with variant spellings.",
          rule_party_consistency),
     Rule("date-sanity", SEVERITY_WARNING, True,
          "Impossible or inconsistent dates (malformed, or expiration before effective).",
          rule_date_sanity),
+    Rule("number-consistency", SEVERITY_WARNING, True,
+         "A written-out amount that disagrees with its parenthetical figure, e.g. 'thirty (45) days'.",
+         rule_number_consistency),
+    Rule("signature-block", SEVERITY_WARNING, False,
+         "A complete-looking contract with no signature/execution block. Off by default "
+         "(most useful as a final pre-signature check; noisy on clauses/fragments).",
+         rule_signature_block),
 )
 RULES_BY_ID = {r.id: r for r in RULES}
 
@@ -1142,27 +1251,30 @@ def _path_to_uri(path: str) -> str:
     return str(path).replace("\\", "/")
 
 
-def build_sarif(path: str, findings: Sequence[Finding]) -> JSONObj:
-    uri = _path_to_uri(path)
+def build_sarif(items: Sequence[Tuple[str, Sequence[Finding]]]) -> JSONObj:
+    """One SARIF run aggregating findings across one or more linted files; each result
+    carries its own file URI, so multi-file output uploads cleanly to code-scanning."""
     results: List[JSONObj] = []
-    for f in findings:
-        region: JSONObj = {"startLine": max(f.line, 1)}
-        if f.column is not None:
-            region["startColumn"] = f.column
-        result: JSONObj = {
-            "ruleId": f"{CLI_NAME}/{f.rule}",
-            "level": _SARIF_LEVEL[f.severity],
-            "message": {"text": f.message},
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": {"uri": uri},
-                    "region": region,
-                }
-            }],
-        }
-        if f.excerpt:
-            result["locations"][0]["physicalLocation"]["region"]["snippet"] = {"text": f.excerpt}
-        results.append(result)
+    for path, findings in items:
+        uri = _path_to_uri(path)
+        for f in findings:
+            region: JSONObj = {"startLine": max(f.line, 1)}
+            if f.column is not None:
+                region["startColumn"] = f.column
+            result: JSONObj = {
+                "ruleId": f"{CLI_NAME}/{f.rule}",
+                "level": _SARIF_LEVEL[f.severity],
+                "message": {"text": f.message},
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": uri},
+                        "region": region,
+                    }
+                }],
+            }
+            if f.excerpt:
+                result["locations"][0]["physicalLocation"]["region"]["snippet"] = {"text": f.excerpt}
+            results.append(result)
     rules_meta = [{
         "id": f"{CLI_NAME}/{r.id}",
         "name": r.id,
@@ -1211,31 +1323,45 @@ def render_table(path: str, fmt: str, findings: Sequence[Finding]) -> str:
 def cmd_lint(args: argparse.Namespace) -> int:
     if getattr(args, "json", False) and getattr(args, "sarif", False):
         raise UsageError("--json and --sarif are mutually exclusive")
-    target = args.path
-    text, fmt = read_document(target, getattr(args, "format", "auto"))
-    cfg = load_config(target, args)
-    analysis = analyze(text, fmt)
-    findings = lint(analysis, cfg)
+    targets: List[str] = list(args.path)
     fail_on = args.fail_on
-    ok = not gate_tripped(findings, fail_on)
 
-    enabled = [r.id for r in RULES if cfg.settings_for(r.id).enabled]
-    _why(args, "lint",
-         f"format={fmt}, {len(analysis.lines)} lines, {len(analysis.headings)} headings, "
-         f"{len(analysis.definitions)} defined terms",
-         f"rules enabled: {', '.join(enabled)}",
-         f"config: {', '.join(cfg.sources) or '(defaults only)'}",
-         f"fail-on={fail_on} -> {'clean' if ok else 'gate tripped'}")
+    reports: List[JSONObj] = []
+    sarif_items: List[Tuple[str, Sequence[Finding]]] = []
+    tables: List[str] = []
+    all_ok = True
+    for target in targets:
+        text, fmt = read_document(target, getattr(args, "format", "auto"))
+        cfg = load_config(target, args)
+        analysis = analyze(text, fmt)
+        findings = lint(analysis, cfg)
+        ok = not gate_tripped(findings, fail_on)
+        all_ok = all_ok and ok
+        enabled = [r.id for r in RULES if cfg.settings_for(r.id).enabled]
+        _why(args, f"lint {target}",
+             f"format={fmt}, {len(analysis.lines)} lines, {len(analysis.headings)} headings, "
+             f"{len(analysis.definitions)} defined terms",
+             f"rules enabled: {', '.join(enabled)}",
+             f"config: {', '.join(cfg.sources) or '(defaults only)'}",
+             f"fail-on={fail_on} -> {'clean' if ok else 'gate tripped'}")
+        reports.append(build_json(target, fmt, findings, fail_on, ok))
+        sarif_items.append((target, findings))
+        tables.append(render_table(target, fmt, findings))
 
     if getattr(args, "check", False):
-        return EXIT_OK if ok else EXIT_FINDINGS
+        return EXIT_OK if all_ok else EXIT_FINDINGS
     if getattr(args, "sarif", False):
-        _emit_json(build_sarif(target, findings))
+        _emit_json(build_sarif(sarif_items))
     elif getattr(args, "json", False):
-        _emit_json(build_json(target, fmt, findings, fail_on, ok))
+        # One path -> a single report object (stable v1 schema); many -> an array of them.
+        _emit_json(reports[0] if len(reports) == 1 else reports)
     else:
-        _out(render_table(target, fmt, findings))
-    return EXIT_OK if ok else EXIT_FINDINGS
+        _out(("\n\n").join(tables))
+        if len(tables) > 1:
+            errors = sum(r["summary"]["error"] for r in reports)
+            warnings = sum(r["summary"]["warning"] for r in reports)
+            _out(_dim(f"\n  total: {errors} error(s), {warnings} warning(s) across {len(reports)} file(s)"))
+    return EXIT_OK if all_ok else EXIT_FINDINGS
 
 
 def cmd_rules(args: argparse.Namespace) -> int:
@@ -1271,12 +1397,13 @@ def cmd_demo(args: argparse.Namespace) -> int:
             "  No file, no network, no model. Every finding below is deterministic.\n"
             "  Point it at your own draft with:  contract-lint your-contract.md\n"))
     cfg = _default_config()
-    cfg.rules["undefined-term"].enabled = True  # showcase the opt-in rule too
+    for opt_in in ("undefined-term", "signature-block"):
+        cfg.rules[opt_in].enabled = True  # showcase the opt-in rules too
     analysis = analyze(DEMO_CONTRACT, fmt)
     findings = lint(analysis, cfg)
     ok = not gate_tripped(findings, "error")
     if getattr(args, "sarif", False):
-        _emit_json(build_sarif("demo-contract.md", findings))
+        _emit_json(build_sarif([("demo-contract.md", findings)]))
     elif getattr(args, "json", False):
         _emit_json(build_json("demo-contract.md", fmt, findings, "error", ok))
     else:
@@ -1405,8 +1532,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-color", action="store_true", help="disable ANSI color")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
-    p_lint = sub.add_parser("lint", help="lint a contract for internal-consistency defects")
-    p_lint.add_argument("path", help="contract file (.md/.txt/.html; .docx/.pdf via extras), or '-' for stdin")
+    p_lint = sub.add_parser("lint", help="lint one or more contracts for internal-consistency defects")
+    p_lint.add_argument("path", nargs="+",
+                        help="contract file(s) (.md/.txt/.html; .docx/.pdf via extras), or '-' for stdin")
     p_lint.add_argument("--format", choices=list(FORMAT_CHOICES), default="auto",
                         help="input format (default: auto-detect by extension; '-' defaults to text)")
     p_lint.add_argument("--fail-on", choices=list(FAIL_ON_CHOICES), default="error",
@@ -1611,22 +1739,22 @@ timeline in Exhibit B. ACME Corporation may subcontract subject to Article IV.
 
 ## 4. Payment
 
-Fees are due within {{payment_terms}} days. Late amounts accrue interest per
-clause 9.3. See Schedule 2.1 for the fee schedule.
+Fees are due within {{payment_terms}} days at ten (15) percent interest. Late
+amounts accrue per clause 9.3. See Schedule 2.1 for the fee schedule.
 
 ## 6. Term
 
 This Agreement is effective as of March 15, 2026 and expires on January 1, 2026,
 unless terminated earlier under Section 7.
 
-## 7. Termination
+## 7. Services
 
 Either party may terminate for material breach. Notices go to the address in
 __________ .
 
 ## Exhibit A
 
-The Services consist of cloud migration and ongoing support. Signed on 2026-02-30.
+The Services consist of cloud migration and ongoing support. Dated 2026-02-30.
 """
 
 

@@ -8,14 +8,16 @@
   "exit_code": 1,
   "summary": {
     "error": 2,
-    "warning": 5,
-    "total": 7,
+    "warning": 7,
+    "total": 9,
     "by_rule": {
       "unused-definition": 1,
       "placeholder": 1,
       "party-consistency": 1,
       "numbering": 1,
+      "number-consistency": 1,
       "broken-xref": 1,
+      "duplicate-heading": 1,
       "double-definition": 1,
       "date-sanity": 1
     }
@@ -51,12 +53,27 @@
       "excerpt": ""
     },
     {
+      "rule": "number-consistency",
+      "severity": "warning",
+      "message": "written amount 'thirty' (30) does not match the figure (45)",
+      "line": 19,
+      "column": 25,
+      "excerpt": "Invoices are due within thirty (45) days, as detailed in Section 9.3."
+    },
+    {
       "rule": "broken-xref",
       "severity": "error",
       "message": "cross-reference to Section 9.3 which is not present in the document",
       "line": 19,
-      "column": 53,
-      "excerpt": "Invoices are due within thirty days, as detailed in Section 9.3."
+      "column": 58,
+      "excerpt": "Invoices are due within thirty (45) days, as detailed in Section 9.3."
+    },
+    {
+      "rule": "duplicate-heading",
+      "severity": "warning",
+      "message": "heading 'Services' duplicates an earlier heading (first at line 12)",
+      "line": 21,
+      "excerpt": "## 5. Services"
     },
     {
       "rule": "double-definition",

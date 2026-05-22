@@ -13,7 +13,7 @@ extract → draft → contract-lint / compare → convert → sign
 ## Principles
 
 1. **Stdlib only, single file.** `contract_lint_cli.py` has zero runtime dependencies. The
-   core (`.md`/`.txt`/`.html`, all eight rules, `--json`/`--sarif`) works with nothing
+   core (`.md`/`.txt`/`.html`, all rules, `--json`/`--sarif`) works with nothing
    installed. `.docx`/`.pdf` reading is delegated to extract-cli's backends via optional
    extras — never reimplemented as a hard dependency.
 2. **Deterministic, offline.** No model, no network, no telemetry. Every rule is a pure

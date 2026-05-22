@@ -1,0 +1,43 @@
+{
+  "tool": "contract-lint",
+  "version": "X.Y.Z",
+  "path": "numbers_headings.md",
+  "format": "markdown",
+  "fail_on": "error",
+  "ok": true,
+  "exit_code": 0,
+  "summary": {
+    "error": 0,
+    "warning": 3,
+    "total": 3,
+    "by_rule": {
+      "number-consistency": 2,
+      "duplicate-heading": 1
+    }
+  },
+  "findings": [
+    {
+      "rule": "number-consistency",
+      "severity": "warning",
+      "message": "written amount 'thirty' (30) does not match the figure (45)",
+      "line": 5,
+      "column": 28,
+      "excerpt": "The supplier shall deliver thirty (45) units per month for a term of twelve (12) months."
+    },
+    {
+      "rule": "number-consistency",
+      "severity": "warning",
+      "message": "written amount 'fifteen' (15) does not match the figure (50)",
+      "line": 6,
+      "column": 23,
+      "excerpt": "Payment is due within fifteen (50) days of invoice."
+    },
+    {
+      "rule": "duplicate-heading",
+      "severity": "warning",
+      "message": "heading 'Quantity' duplicates an earlier heading (first at line 3)",
+      "line": 12,
+      "excerpt": "## 3. Quantity"
+    }
+  ]
+}

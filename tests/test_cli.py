@@ -116,6 +116,35 @@ def test_no_color_strips_ansi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
     assert "\033[" not in out
 
 
+def test_multi_file_json_is_array(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    a = tmp_path / "a.md"; a.write_text("# A\nFee is {{x}}.\n", encoding="utf-8")
+    b = tmp_path / "b.md"; b.write_text("# B\n\n## 1. T\nClean.\n", encoding="utf-8")
+    code, out, err = run([str(a), str(b), "--json"], capsys)
+    data = json.loads(out)
+    assert isinstance(data, list) and len(data) == 2
+    assert data[0]["path"] == str(a) and data[0]["ok"] is False
+    assert data[1]["path"] == str(b) and data[1]["ok"] is True
+    assert code == 1  # worst across files
+
+
+def test_multi_file_sarif_one_run_many_uris(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    a = tmp_path / "a.md"; a.write_text("Fee is {{x}}.\n", encoding="utf-8")
+    b = tmp_path / "b.md"; b.write_text("Fee is {{y}}.\n", encoding="utf-8")
+    code, out, err = run([str(a), str(b), "--sarif"], capsys)
+    sarif = json.loads(out)
+    runs = sarif["runs"]
+    assert len(runs) == 1
+    uris = {r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for r in runs[0]["results"]}
+    assert len(uris) == 2  # one result per file, each with its own uri
+
+
+def test_multi_file_check_worst_exit(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    clean = tmp_path / "c.md"; clean.write_text("# A\n\n## 1. T\nfine\n", encoding="utf-8")
+    dirty = tmp_path / "d.md"; dirty.write_text("Fee {{x}}.\n", encoding="utf-8")
+    assert run([str(clean), "--check"], capsys)[0] == 0
+    assert run([str(clean), str(dirty), "--check"], capsys)[0] == 1
+
+
 def test_unknown_flag_exits_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     f = tmp_path / "c.md"
     f.write_text("# A\nok\n", encoding="utf-8")

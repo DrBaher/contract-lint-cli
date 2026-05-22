@@ -23,6 +23,10 @@ venv/
 # OS
 .DS_Store
 
+# Node (MCP server)
+node_modules/
+mcp/package-lock.json
+
 # Local scratch
 *.sarif
 !tests/**/*.sarif

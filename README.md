@@ -46,7 +46,10 @@ contract-lint your-contract.md --check && echo "ready to sign"   # exit-code gat
 - **Driving it from an agent?** See [`AGENTS.md`](AGENTS.md). Call `contract-lint --catalog json`
   at startup to discover commands/flags, and `contract-lint rules --json` to discover rule ids
   (don't hardcode them). The `--json` report follows [`docs/spec/lint-output.schema.json`](docs/spec/lint-output.schema.json).
-- **Wiring it into CI / the pipeline?** [`docs/INTEROP.md`](docs/INTEROP.md) — it sits as a
+  There's also an [MCP server](mcp/) (`lint_contract` / `list_rules` / `lint_demo` tools).
+- **Wiring it into CI?** [`docs/recipes/`](docs/recipes/) — a [GitHub Action](docs/recipes/github-actions.md)
+  (with code-scanning), a [pre-commit hook](docs/recipes/pre-commit.md), and [gating any CI/shell](docs/recipes/ci-gate.md).
+- **Wiring it into the pipeline?** [`docs/INTEROP.md`](docs/INTEROP.md) — it sits as a
   pre-signature gate (after draft-cli, alongside compare-cli, before sign-cli) and emits SARIF.
 - **Contributing?** [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -76,6 +79,9 @@ contract-lint draft.md --json | jq .summary
 contract-lint draft.md --sarif > lint.sarif
 cat draft.md | contract-lint - --format md # read from stdin
 
+# Lint several at once (merged report, worst exit code wins):
+contract-lint contracts/*.md --check
+
 # CI gate: fail the build only on errors (default), or on warnings too:
 contract-lint draft.md --check                  # exit 0 clean / 1 if errors / 2 unreadable
 contract-lint draft.md --check --fail-on warning
@@ -96,10 +102,14 @@ live with `contract-lint rules --json`.
 | `unused-definition` | warning | on | A term defined but never used afterward. |
 | `double-definition` | warning | on | A term defined more than once. |
 | `numbering` | warning | on | Gaps or duplicates in a heading-number sequence. |
+| `duplicate-heading` | warning | on | Two headings with the same title (often a copy-paste left unedited). |
 | `party-consistency` | warning | on | Defined party names used with variant spellings (`Acme Corporation` vs `Acme Corp.` vs `ACME Corporation`). |
 | `date-sanity` | warning | on | Impossible or inconsistent dates (malformed, or an expiration before the effective date). |
+| `number-consistency` | warning | on | A written-out amount that disagrees with its parenthetical figure, e.g. `thirty (45) days`. |
+| `signature-block` | warning | **off** | A complete-looking contract with no signature/execution block. Off by default (most useful as a final pre-signature check). |
 
-`undefined-term` ships **off** because it is the most false-positive-prone; enable it per
+`undefined-term` and `signature-block` ship **off** — the former is the most
+false-positive-prone, the latter is opinionated and noisy on fragments. Enable either per
 run (`--enable undefined-term`) or in config.
 
 ---
@@ -180,6 +190,15 @@ for f in contracts/*.md; do contract-lint "$f" --check || exit 1; done
 # Emit SARIF for GitHub code-scanning:
 contract-lint draft.md --sarif > contract-lint.sarif
 ```
+
+In a GitHub workflow, the bundled action lints, uploads SARIF to code-scanning, and gates:
+
+```yaml
+- uses: DrBaher/contract-lint-cli@v0.2.0
+  with: { paths: contracts/, fail-on: error }   # needs permissions: security-events: write
+```
+
+It's also a pre-commit hook (`id: contract-lint`). See [`docs/recipes/`](docs/recipes/).
 
 ---
 

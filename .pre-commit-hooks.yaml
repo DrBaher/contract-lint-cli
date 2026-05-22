@@ -1,0 +1,8 @@
+- id: contract-lint
+  name: contract-lint
+  description: Lint contracts for internal-consistency defects (placeholders, broken cross-refs, defined-term and numbering issues, inconsistent parties/dates) and gate via exit code.
+  entry: contract-lint
+  language: python
+  args: ["--check"]
+  files: '\.(md|markdown|txt|text|html?|docx)$'
+  require_serial: true

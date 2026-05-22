@@ -6,6 +6,37 @@ All notable changes to **contract-lint** are documented here. The format follows
 semver-meaningful: backward-incompatible `--json`/SARIF/rules output changes require a
 major bump; new optional fields are minor additions.
 
+## [0.2.0] - 2026-05-22
+
+### Added — three new rules
+- **`number-consistency`** (warning, on): a written-out amount that disagrees with its
+  parenthetical figure — the classic `thirty (45) days` drafting defect. High precision:
+  only the tight `<words> (<digits>)` idiom is checked, with a stdlib English-number parser.
+- **`duplicate-heading`** (warning, on): two headings with the same title (a copy-paste left
+  unedited) — distinct from `numbering`, which flags repeated heading *numbers*.
+- **`signature-block`** (warning, **off** by default): a complete-looking contract (≥3 titled
+  headings) with no signature/execution block. Opt-in — most useful as a final pre-signature
+  check; noisy on clauses/fragments.
+
+Eleven rules total. The bundled `demo` now showcases all three (it enables the opt-in
+`undefined-term` and `signature-block` rules).
+
+### Added — multi-file + CI integration
+- **Multiple paths in one run:** `contract-lint a.md b.md c.md`. One path still emits a single
+  `--json` report object (the v1 schema is unchanged); multiple paths emit a JSON **array** of
+  those objects, and `--sarif` merges everything into one document. `--check` returns the worst
+  exit code. This makes contract-lint a clean pre-commit hook and folder linter.
+- **GitHub Action** (`action.yml`): a composite action that lints files/dirs, merges SARIF,
+  uploads to code-scanning, and gates the build. See [`docs/recipes/github-actions.md`](docs/recipes/github-actions.md).
+- **pre-commit hook** (`.pre-commit-hooks.yaml`): `id: contract-lint`. See [`docs/recipes/pre-commit.md`](docs/recipes/pre-commit.md).
+- **Recipes** under `docs/recipes/` for GitHub Actions, pre-commit, and gating any CI / shell.
+- **MCP server** under `mcp/` (`contract-lint-mcp`): a Model Context Protocol stdio server
+  exposing `lint_contract`, `list_rules`, and `lint_demo` tools, so agents can lint via MCP.
+  Shells out to the `contract-lint` binary and returns its locked JSON.
+
+`--json`/SARIF/rules schemas are unchanged (rule ids are data, not schema; the multi-file
+`--json` array is just a list of v1 reports), so this is a backward-compatible minor release.
+
 ## [0.1.0] - 2026-05-22
 
 ### Added — first release

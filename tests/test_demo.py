@@ -27,9 +27,10 @@ def test_demo_covers_many_rule_types(capsys: pytest.CaptureFixture[str]) -> None
     cl.main(["demo", "--json"])
     report = json.loads(capsys.readouterr().out)
     fired = set(report["summary"]["by_rule"])
-    # the demo deliberately triggers a broad spread, including the opt-in rule
-    assert {"placeholder", "broken-xref", "numbering", "date-sanity"} <= fired
-    assert len(fired) >= 5
+    # the demo deliberately triggers a broad spread, including the opt-in rules
+    assert {"placeholder", "broken-xref", "numbering", "date-sanity",
+            "number-consistency", "duplicate-heading", "signature-block"} <= fired
+    assert len(fired) >= 7
 
 
 def test_demo_sarif(capsys: pytest.CaptureFixture[str]) -> None:

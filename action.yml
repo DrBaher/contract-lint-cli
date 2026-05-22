@@ -1,0 +1,113 @@
+name: "contract-lint"
+description: "Lint contracts for internal-consistency defects and gate the build; optionally upload SARIF to GitHub code-scanning."
+author: "DrBaher"
+branding:
+  icon: "check-square"
+  color: "purple"
+
+inputs:
+  paths:
+    description: "Files and/or directories to lint (space- or newline-separated). Directories are searched for .md/.markdown/.txt/.html/.docx."
+    required: false
+    default: "."
+  fail-on:
+    description: "Severity that fails the build: error | warning | none."
+    required: false
+    default: "error"
+  version:
+    description: "contract-lint version to install (default: latest from PyPI)."
+    required: false
+    default: ""
+  args:
+    description: "Extra arguments passed through to contract-lint (e.g. '--enable signature-block --config .contract-lint.json')."
+    required: false
+    default: ""
+  sarif-file:
+    description: "Path to write the merged SARIF report."
+    required: false
+    default: "contract-lint.sarif"
+  upload-sarif:
+    description: "Upload the SARIF report to GitHub code-scanning (needs 'security-events: write')."
+    required: false
+    default: "true"
+
+outputs:
+  findings:
+    description: "Total number of findings across all linted files."
+    value: ${{ steps.lint.outputs.findings }}
+  exit-code:
+    description: "Gate exit code (0 clean, 1 findings at/above fail-on)."
+    value: ${{ steps.lint.outputs.gate }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install contract-lint
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          python -m pip install "contract-lint==${{ inputs.version }}"
+        elif python -c "import contract_lint_cli" 2>/dev/null; then
+          echo "using pre-installed contract-lint ($(contract-lint --version))"
+        else
+          python -m pip install contract-lint
+        fi
+
+    - name: Lint
+      id: lint
+      shell: bash
+      run: |
+        set -o pipefail
+        # Expand inputs.paths (dirs -> contract files; files kept as-is).
+        FILES=()
+        for p in ${{ inputs.paths }}; do
+          if [ -d "$p" ]; then
+            while IFS= read -r f; do FILES+=("$f"); done < <(
+              find "$p" -type f \
+                -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/.venv/*' \
+                \( -iname '*.md' -o -iname '*.markdown' -o -iname '*.txt' \
+                   -o -iname '*.html' -o -iname '*.htm' -o -iname '*.docx' \) | sort
+            )
+          elif [ -f "$p" ]; then
+            FILES+=("$p")
+          fi
+        done
+        if [ ${#FILES[@]} -eq 0 ]; then
+          echo "contract-lint: no contract files found under: ${{ inputs.paths }}"
+          echo "gate=0" >> "$GITHUB_OUTPUT"
+          echo "findings=0" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "contract-lint: linting ${#FILES[@]} file(s)"
+        set +e
+        contract-lint "${FILES[@]}" --sarif --fail-on "${{ inputs.fail-on }}" --no-color ${{ inputs.args }} > "${{ inputs.sarif-file }}" 2> lint.err
+        GATE=$?
+        set -e
+        if [ "$GATE" = "2" ]; then
+          cat lint.err >&2
+          echo "::error::contract-lint: bad usage or unreadable input"
+          exit 2
+        fi
+        FINDINGS=$(python -c "import json; d=json.load(open('${{ inputs.sarif-file }}')); print(sum(len(r.get('results',[])) for r in d['runs']))")
+        echo "gate=$GATE" >> "$GITHUB_OUTPUT"
+        echo "findings=$FINDINGS" >> "$GITHUB_OUTPUT"
+        echo "contract-lint: $FINDINGS finding(s); gate exit $GATE"
+
+    - name: Upload SARIF to code-scanning
+      if: ${{ inputs.upload-sarif == 'true' && hashFiles(inputs.sarif-file) != '' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: contract-lint
+
+    - name: Gate
+      if: ${{ steps.lint.outputs.gate != '0' }}
+      shell: bash
+      run: |
+        echo "::error::contract-lint gate tripped — ${{ steps.lint.outputs.findings }} finding(s) at or above '${{ inputs.fail-on }}'"
+        exit 1
