@@ -1,7 +1,7 @@
 # contract-lint interop
 
 contract-lint is the **pre-signature quality gate** of the
-[contract-ops CLI suite](https://github.com/DrBaher) — six (now seven) composable,
+[contract-ops CLI suite](https://github.com/DrBaher) — a set of composable,
 local-first, agent-first CLIs for end-to-end contract operations. Where
 [`compare-cli`](https://github.com/DrBaher/compare-cli) gates **drift between two
 versions** of a contract, contract-lint gates **defects within a single document**. It runs
