@@ -6,6 +6,30 @@ All notable changes to **contract-lint** are documented here. The format follows
 semver-meaningful: backward-incompatible `--json`/SARIF/rules output changes require a
 major bump; new optional fields are minor additions.
 
+## [0.2.1] - 2026-05-22
+
+### Fixed — hardening from a stress test (fuzz + 510 real CUAD contracts + seeded precision/recall)
+- **ReDoS in `number-consistency`.** A long run of number-words with no closing `(digits)`
+  backtracked quadratically (16k tokens → multi-second hang). The phrase continuation is now
+  bounded, making matching linear. (Found by adversarial fuzzing.)
+- **`numbering` perf + false positives.** An inline 8-digit amount/id (e.g. an SEC EDGAR
+  document number) was read as a section number, producing an ~87-million-element "missing
+  numbers" gap (a ~10s hang on one real contract). Section numbers ≥ 4 digits or > 499 are now
+  ignored, and large gaps are summarized ("N numbers missing") rather than enumerated.
+- **`broken-xref` is now O(n) instead of O(n²).** Section satisfaction uses a precomputed
+  dotted-prefix index instead of rescanning every declared section per reference (a large
+  structured contract was ~quadratic). Real-corpus throughput improved ~3.6×.
+- **`broken-xref` false positives** like `Exhibit AND` (from "Exhibits AND Schedules") are
+  gone: a reference id must look like an identifier (a number, single letter, or roman numeral;
+  sections must contain a digit), not an English word swept up after the keyword.
+- **`unused-definition` is no longer O(defs²).** It strips quoted spans once and does a fast
+  substring check per term instead of compiling+scanning a regex per term over the whole
+  document (a 3000-definition doc went 4.6s → ~0.1s).
+
+No rule, schema, or output-shape changes — purely robustness, performance, and precision.
+Stress results: **0 crashes** across 20k fuzz inputs and 510 real contracts; **0% false
+positives** and **100% recall** on seeded synthetic clean/defective drafts.
+
 ## [0.2.0] - 2026-05-22
 
 ### Added — three new rules

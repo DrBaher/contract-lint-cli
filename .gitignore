@@ -30,3 +30,6 @@ mcp/package-lock.json
 # Local scratch
 *.sarif
 !tests/**/*.sarif
+
+# Stress-test scratch (not part of the package)
+stress/

@@ -33,7 +33,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -538,20 +538,49 @@ def _section_components(num: str) -> List[str]:
     return [p for p in num.split(".") if p]
 
 
-def _section_satisfied(ref: str, declared: Set[str]) -> bool:
-    """A section/clause id is present if it exactly matches a declared number, or if
-    one is a dotted-component prefix of the other (declared '7' satisfies a ref to
-    '7.2'; declared '7.2.1' satisfies a ref to '7.2'). Keeps false positives low while
-    still catching genuinely dangling refs like 'Section 99'."""
+def _section_prefix_index(declared: Set[str]) -> Tuple[Set[str], Set[str]]:
+    """Precompute, once per document, the two membership sets that answer section
+    satisfaction in O(depth) instead of O(declared) per reference (the latter is
+    quadratic on big contracts). Returns (all dotted-prefixes of declared numbers,
+    full declared numbers)."""
+    prefixes: Set[str] = set()
+    full: Set[str] = set()
+    for d in declared:
+        comps = _section_components(d)
+        if not comps:
+            continue
+        full.add(".".join(comps))
+        for k in range(1, len(comps) + 1):
+            prefixes.add(".".join(comps[:k]))
+    return prefixes, full
+
+
+def _section_satisfied(ref: str, prefixes: Set[str], full: Set[str]) -> bool:
+    """A section/clause id is present if a declared number has the ref as a dotted-
+    component prefix (covers exact match and 'declared 7.2.1 satisfies ref 7.2'), or if
+    a declared number is itself a prefix of the ref ('declared 7 satisfies ref 7.2')."""
     rc = _section_components(ref)
     if not rc:
         return True
-    for d in declared:
-        dc = _section_components(d)
-        n = min(len(rc), len(dc))
-        if rc[:n] == dc[:n]:
-            return True
-    return False
+    if ".".join(rc) in prefixes:
+        return True
+    return any(".".join(rc[:k]) in full for k in range(1, len(rc)))
+
+
+def _plausible_ref_id(ns: str, ref: str) -> bool:
+    """Reject 'references' whose id is really an English word swept up after the keyword,
+    e.g. 'Exhibit AND' (from 'Exhibits AND Schedules') or 'Section HEREOF'. Sections/clauses
+    must contain a digit; articles must be a number or roman; exhibits/schedules/annexes/
+    appendices must be a number, a single letter, or a roman numeral."""
+    if not ref:
+        return False
+    if ns in ("section",):
+        return any(c.isdigit() for c in ref)
+    if ns == "article":
+        return ref.isdigit() or _roman_to_int(ref) is not None
+    if any(c.isdigit() for c in ref):
+        return True
+    return len(ref) == 1 or _roman_to_int(ref) is not None
 
 
 _XREF_RE = re.compile(
@@ -569,17 +598,18 @@ def rule_broken_xref(a: Analysis) -> List[Finding]:
     # declared; exhibit/schedule/annex/appendix are only checked when the document
     # actually declares at least one (so we never flag an attached-but-unheaded exhibit).
     checkable = {"section", "article"} | {k for k in declared if declared[k]}
+    sec_prefixes, sec_full = _section_prefix_index(declared.get("section", set()))
 
     out: List[Finding] = []
     for i, line in enumerate(a.lines, 1):
         for m in _XREF_RE.finditer(line):
             ns = _REF_KEYWORDS.get(m.group(1).lower(), "section")
             ref = m.group(2).rstrip(".").upper()
-            if ns not in checkable:
+            if ns not in checkable or not _plausible_ref_id(ns, ref):
                 continue
             present = declared.get(ns, set())
             if ns == "section":
-                ok = _section_satisfied(ref, present)
+                ok = _section_satisfied(ref, sec_prefixes, sec_full)
             elif ns == "article":
                 ri = _roman_to_int(ref)
                 # accept the literal id, or a declared roman whose value matches.
@@ -627,8 +657,9 @@ _MONTHS = {
 }
 
 
-def _term_boundary_re(term: str) -> "re.Pattern[str]":
-    return re.compile(r"(?<![\w\"“])" + re.escape(term) + r"(?![\w\"”])")
+# A quoted span (straight or curly), bounded to a single line so a stray quote can't
+# gobble the document. Used to strip definitions/quoted mentions when deciding "unused".
+_QUOTED_SPAN_RE = re.compile(r'"[^"\n]*"|“[^”\n]*”')
 
 
 def rule_undefined_term(a: Analysis) -> List[Finding]:
@@ -670,12 +701,14 @@ def rule_undefined_term(a: Analysis) -> List[Finding]:
 
 
 def rule_unused_definition(a: Analysis) -> List[Finding]:
+    # Strip quoted spans once (definitions are quoted), then a term that never appears in
+    # the remaining unquoted text was never *used* — only defined. One O(text) strip plus
+    # an O(text) substring check per term, instead of compiling+scanning a regex per term
+    # over the whole document (which was O(defs x text), quadratic on definition-heavy docs).
+    unquoted = _QUOTED_SPAN_RE.sub(" ", a.text)
     out: List[Finding] = []
     for term, def_lines in sorted(a.definitions.items()):
-        # _term_boundary_re excludes quoted forms, so this counts only *unquoted* uses
-        # (the definition itself is quoted and never counts). Zero of them => unused.
-        uses = len(_term_boundary_re(term).findall(a.text))
-        if uses == 0:
+        if term not in unquoted:
             line = def_lines[0]
             out.append(Finding(
                 "unused-definition", SEVERITY_WARNING,
@@ -711,6 +744,11 @@ def rule_numbering(a: Analysis) -> List[Finding]:
         comps = _section_components(h.number)
         if not comps or not all(c.isdigit() for c in comps):
             continue
+        # A real section number is small. Skip years/amounts/ids (>=4 digits or >499) so
+        # an inline "$78,560,181" or "2018" isn't read as a section — which also avoids a
+        # giant phantom gap (and the cost of enumerating it).
+        if any(len(c) >= 4 or int(c) > 499 for c in comps):
+            continue
         parent = ".".join(comps[:-1])
         groups.setdefault(parent, []).append((int(comps[-1]), h.line))
     for parent, items in groups.items():
@@ -720,7 +758,7 @@ def rule_numbering(a: Analysis) -> List[Finding]:
     for h in a.headings:
         if h.kind == "article" and h.number:
             ri = _roman_to_int(h.number)
-            if ri is not None:
+            if ri is not None and ri <= 99:
                 art_items.append((ri, h.line))
     out.extend(_sequence_findings(art_items, "", "article"))
     out.sort(key=lambda f: f.line)
@@ -747,10 +785,16 @@ def _sequence_findings(items: List[Tuple[int, int]], parent: str, kind: str) -> 
     for idx in range(1, len(ordered)):
         prev, cur = ordered[idx - 1], ordered[idx]
         if cur - prev > 1:
-            missing = ", ".join(f"{prefix}{n}" for n in range(prev + 1, cur))
+            gap = cur - prev - 1
+            # Summarize large gaps instead of enumerating every missing number (a defensive
+            # cap; the section-number sanity filter already rules out astronomical gaps).
+            if gap > 20:
+                detail = f"{gap} numbers missing"
+            else:
+                detail = "missing " + ", ".join(f"{prefix}{n}" for n in range(prev + 1, cur))
             out.append(Finding(
                 "numbering", SEVERITY_WARNING,
-                f"{kind} numbering jumps from {prefix}{prev} to {prefix}{cur} (missing {missing})",
+                f"{kind} numbering jumps from {prefix}{prev} to {prefix}{cur} ({detail})",
                 line_of[cur], "",
             ))
     return out
@@ -883,8 +927,11 @@ _NUMBER_SCALES = {"thousand": 1000, "million": 1000000, "billion": 1000000000}
 _NUMBER_WORDS = set(_NUMBER_ONES) | set(_NUMBER_SCALES) | {"hundred"}
 # Longest-first alternation so "nineteen" wins over "nine", etc.
 _NUMWORD_ALT = "|".join(sorted((re.escape(w) for w in _NUMBER_WORDS), key=len, reverse=True))
+# The continuation is bounded ({0,12}) rather than unbounded (*): a real written number
+# never runs longer than a handful of words, and an unbounded star backtracks
+# quadratically on a long run of number-words with no closing "(digits)" (ReDoS).
 _NUMBER_SEQ_RE = re.compile(
-    r"\b((?:" + _NUMWORD_ALT + r")(?:[\s\-]+(?:and|" + _NUMWORD_ALT + r"))*)\s*\((\d{1,12})\)",
+    r"\b((?:" + _NUMWORD_ALT + r")(?:[\s\-]+(?:and|" + _NUMWORD_ALT + r")){0,12})\s*\((\d{1,12})\)",
     re.IGNORECASE,
 )
 

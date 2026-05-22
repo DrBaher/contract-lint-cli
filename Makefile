@@ -2,7 +2,7 @@
 # Usage: make <target>   (run `make help` for the list)
 
 PYTHON ?= python3
-VERSION ?= 0.2.0
+VERSION ?= 0.2.1
 WHEEL_GLOB := dist/*.whl
 
 .DEFAULT_GOAL := help
