@@ -6,6 +6,30 @@ All notable changes to **contract-lint** are documented here. The format follows
 semver-meaningful: backward-incompatible `--json`/SARIF/rules output changes require a
 major bump; new optional fields are minor additions.
 
+## [0.2.2] - 2026-05-31
+
+### Fixed — security/robustness hardening from a source audit
+- **ReDoS in definition scanning (`_DEFN_PARENS_RE`).** The parenthetical-definition regex
+  had an ambiguous overlap between a standalone `\s` alternative inside its repeatable
+  keyword group and a trailing `\s*`, both followed by a required quote. A line with `(`
+  plus a long whitespace run and no closing quote triggered catastrophic backtracking (a
+  4,000-space line took ~79s; the regex runs per line in `scan_definitions` with no
+  timeout). The leading group is now
+  `(?:(?:the|this|each|an?|collectively,?|together,?|individually,?)\s+)*` — whitespace is
+  only ever a separator after a keyword, never a standalone repeatable alternative — and
+  the redundant trailing `\s*` is removed. Matching is now linear: a 5,000-space line lints
+  in well under a second. All real constructs (`("X")`, `(the "X")`, `(collectively, "X")`)
+  still match.
+- **Malformed/invalid `.docx` now exits 2 (usage), not 1 with a traceback.** The stdlib
+  `.docx` reader did not catch the failures `_docx_xml_guard` deliberately defers to it —
+  `zipfile.BadZipFile` (non-zip), `KeyError` (zip missing `word/document.xml`), and
+  `xml.etree.ElementTree.ParseError` (malformed `document.xml`) — so each dumped a raw
+  traceback and exited 1 instead of the documented exit code 2. The reader now wraps the
+  read/parse in `except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError)` and raises
+  `UsageError("cannot read .docx: …")`.
+
+No rule, schema, or output-shape changes — purely security and robustness.
+
 ## [0.2.1] - 2026-05-22
 
 ### Fixed — hardening from a stress test (fuzz + 510 real CUAD contracts + seeded precision/recall)

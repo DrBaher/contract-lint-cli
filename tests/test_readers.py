@@ -62,6 +62,51 @@ def test_docx_zip_bomb_guard_is_safe(tmp_path: Path) -> None:
         cl.read_document(str(f))
 
 
+def test_docx_non_zip_errors_cleanly(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # A .docx that is not a zip at all must exit 2 (usage), not dump a BadZipFile traceback.
+    f = tmp_path / "junk.docx"
+    f.write_bytes(b"this is plainly not a zip file")
+    with pytest.raises(cl.UsageError):
+        cl.read_document(str(f))
+    code = cl.main([str(f)])
+    err = capsys.readouterr().err
+    assert code == cl.EXIT_USAGE
+    assert "docx" in err.lower()
+
+
+def test_docx_zip_missing_document_xml_errors_cleanly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A valid zip with no word/document.xml must exit 2 (usage), not a KeyError traceback.
+    import zipfile
+
+    f = tmp_path / "nodoc.docx"
+    with zipfile.ZipFile(f, "w") as z:
+        z.writestr("word/other.xml", "<x/>")
+    with pytest.raises(cl.UsageError):
+        cl.read_document(str(f))
+    code = cl.main([str(f)])
+    assert code == cl.EXIT_USAGE
+    assert "docx" in capsys.readouterr().err.lower()
+
+
+def test_docx_malformed_document_xml_errors_cleanly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A valid zip whose document.xml is not well-formed XML must exit 2 (usage),
+    # not an ET.ParseError traceback.
+    import zipfile
+
+    f = tmp_path / "malformed.docx"
+    with zipfile.ZipFile(f, "w") as z:
+        z.writestr("word/document.xml", "<w:document><w:body><unclosed></w:body>")
+    with pytest.raises(cl.UsageError):
+        cl.read_document(str(f))
+    code = cl.main([str(f)])
+    assert code == cl.EXIT_USAGE
+    assert "docx" in capsys.readouterr().err.lower()
+
+
 @pytest.mark.skipif(importlib.util.find_spec("pypdf") is not None, reason="pypdf installed")
 def test_pdf_without_extra_errors_clearly(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     f = tmp_path / "c.pdf"

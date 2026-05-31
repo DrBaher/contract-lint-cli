@@ -75,6 +75,27 @@ def test_double_definition() -> None:
     assert len(fs) == 1 and "2" in fs[0].message
 
 
+def test_parens_definition_variants_still_match() -> None:
+    # The de-ReDoS'd _DEFN_PARENS_RE must keep matching the real constructs.
+    assert cl.scan_definitions(['("Widget")']) == {"Widget": [1]}
+    assert cl.scan_definitions(['(the "Widget")']) == {"Widget": [1]}
+    assert cl.scan_definitions(['(collectively, "Parties")']) == {"Parties": [1]}
+    assert cl.scan_definitions(['(  "Spaced")']) == {"Spaced": [1]}
+
+
+def test_definition_scan_no_redos_on_pathological_line() -> None:
+    # Regression for catastrophic backtracking in _DEFN_PARENS_RE: an open paren
+    # followed by a long whitespace run and no closing quote used to take ~tens of
+    # seconds. It must now complete near-instantly.
+    import time
+
+    pathological = "(" + " " * 5000
+    start = time.perf_counter()
+    cl.scan_definitions([pathological])
+    elapsed = time.perf_counter() - start
+    assert elapsed < 1.0, f"scan_definitions took {elapsed:.3f}s on a pathological line"
+
+
 def test_numbering_gap_and_duplicate() -> None:
     gap = "# T\n\n## 1 a\n\n## 3 b\n"
     assert any("missing" in f.message for f in findings(gap) if f.rule == "numbering")

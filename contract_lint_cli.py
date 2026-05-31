@@ -33,7 +33,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -248,9 +248,15 @@ def _read_docx_stdlib(raw: bytes) -> str:
     import zipfile
 
     w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-    with zipfile.ZipFile(io.BytesIO(raw)) as z:
-        xml = z.read("word/document.xml")  # size/XML-bomb already vetted by _docx_xml_guard
-    root = ET.fromstring(xml)
+    # _docx_xml_guard returns None for a bad zip / missing document.xml ("let the reader
+    # report it"), so the reader must turn those — plus malformed XML — into a clean
+    # UsageError (exit 2) rather than letting a raw traceback escape (exit 1).
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            xml = z.read("word/document.xml")  # size/XML-bomb already vetted by _docx_xml_guard
+        root = ET.fromstring(xml)
+    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
+        raise UsageError(f"cannot read .docx: {exc}")
     paras: List[str] = []
     for p in root.iter(w + "p"):
         text = "".join(t.text or "" for t in p.iter(w + "t")).strip()
@@ -428,7 +434,7 @@ def scan_headings(lines: Sequence[str]) -> List[Heading]:
 
 # Definition constructs: (the "X") / ("X") / "X" means / "X" shall mean / "X" refers to.
 _DEFN_PARENS_RE = re.compile(
-    r"""\(\s*(?:the|this|each|an?|collectively,?|together,?|individually,?|\s)*\s*
+    r"""\(\s*(?:(?:the|this|each|an?|collectively,?|together,?|individually,?)\s+)*
         ["“]([A-Z][\w&.,'’\-/ ]{1,60}?)["”]\s*\)""",
     re.VERBOSE,
 )
