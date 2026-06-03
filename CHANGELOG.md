@@ -8,6 +8,8 @@ major bump; new optional fields are minor additions.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-06-03
+
 ### Fixed — robustness/correctness from a follow-up source audit
 - **Invalid regex in the config `ignore` list now exits 2 (usage), not 1 with a traceback.**
   `_apply_config_file` appended `ignore` entries as raw strings without validation; the only
