@@ -6,6 +6,26 @@ All notable changes to **contract-lint** are documented here. The format follows
 semver-meaningful: backward-incompatible `--json`/SARIF/rules output changes require a
 major bump; new optional fields are minor additions.
 
+## [Unreleased]
+
+### Fixed — robustness/correctness from a follow-up source audit
+- **Invalid regex in the config `ignore` list now exits 2 (usage), not 1 with a traceback.**
+  `_apply_config_file` appended `ignore` entries as raw strings without validation; the only
+  compile site was `lint()`, so a malformed pattern raised `re.error` mid-run and escaped as
+  a traceback (exit 1) instead of the documented exit 2. Patterns are now compiled at
+  config-load time and a bad one raises `UsageError("invalid ignore pattern in <path>: …")`.
+- **Corrupt `.docx` DEFLATE payload now exits 2 (usage), not 1 with a traceback.** The 0.2.2
+  fix caught an enumerated, non-exhaustive tuple. A valid zip whose `word/document.xml` exists
+  (so `_docx_xml_guard` passes) but whose DEFLATE payload is corrupt makes `z.read()` raise
+  `zlib.error`, which is not an `OSError` subclass, so it dumped a traceback and exited 1. The
+  stdlib reader now catches broadly and raises `UsageError`, matching the guard's posture.
+- **`date-sanity` now evaluates all effective/expiry pairs, not just the first.** The rule
+  latched only the first matched effective and first matched expiry date, so a later
+  out-of-order expiry slipped through. It now classifies each date by its nearest preceding
+  keyword and flags every expiry that precedes the earliest effective date.
+- **`demo` now exits 1 when the sample trips the gate.** `cmd_demo` computed `ok` but returned
+  `EXIT_OK` unconditionally; it now returns `EXIT_FINDINGS` when error-severity findings fire.
+
 ## [0.2.2] - 2026-05-31
 
 ### Fixed — security/robustness hardening from a source audit

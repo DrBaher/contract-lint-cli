@@ -70,6 +70,19 @@ def test_ignore_regex(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Non
     assert "rate" in placeholders[0]["message"] and "payment_terms" not in placeholders[0]["message"]
 
 
+def test_invalid_ignore_pattern_exits_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # Regression: a malformed regex in the config `ignore` list must be reported as a
+    # clean usage error (exit 2) at config-load time, not escape as a raw re.error
+    # traceback (exit 1) when lint() compiles the pattern.
+    (tmp_path / ".contract-lint.json").write_text(
+        json.dumps({"ignore": ["payment[", "rate"]}), encoding="utf-8")
+    f = tmp_path / "c.md"
+    f.write_text("# A\nFee is {{rate}}.\n", encoding="utf-8")
+    assert cl.main([str(f)]) == cl.EXIT_USAGE
+    err = capsys.readouterr().err
+    assert "ignore pattern" in err
+
+
 def test_enable_disable_flags(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     f = tmp_path / "c.md"
     f.write_text("# A\nThe Disclosing Party tells the Disclosing Party.\n", encoding="utf-8")

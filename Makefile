@@ -41,7 +41,7 @@ smoke: build ## Build, install the wheel in a clean venv, and run it
 	.smoke-venv/bin/python -m pip install --quiet --upgrade pip
 	.smoke-venv/bin/python -m pip install --quiet $(WHEEL_GLOB)
 	.smoke-venv/bin/contract-lint --version
-	.smoke-venv/bin/contract-lint demo
+	.smoke-venv/bin/contract-lint demo; test $$? -le 1  # demo trips the gate (exit 1) on the flawed sample
 	rm -rf .smoke-venv
 	@echo "smoke OK"
 

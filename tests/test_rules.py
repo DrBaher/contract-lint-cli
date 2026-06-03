@@ -116,6 +116,24 @@ def test_date_sanity_malformed_and_inconsistent() -> None:
     assert any("precedes" in f.message for f in findings(inconsistent) if f.rule == "date-sanity")
 
 
+def test_date_sanity_checks_all_pairs_not_just_first() -> None:
+    # Regression: the rule used to latch only the FIRST effective + FIRST expiry, so a
+    # later out-of-order expiry slipped through. Here the first expiry is valid (after the
+    # effective date) but a second termination date precedes it — that must still fire.
+    text = (
+        "Effective as of 2026-05-01.\n"
+        "This expires on 2026-12-31.\n"
+        "Termination date 2026-01-01.\n"
+    )
+    out_of_order = [
+        f for f in findings(text)
+        if f.rule == "date-sanity" and "precedes" in f.message
+    ]
+    assert len(out_of_order) == 1
+    assert out_of_order[0].line == 3
+    assert "2026-01-01" in out_of_order[0].message
+
+
 def test_number_consistency() -> None:
     bad = "Payment is due within thirty (45) days of the invoice date.\n"
     fs = [f for f in findings(bad) if f.rule == "number-consistency"]

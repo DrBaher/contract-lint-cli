@@ -255,7 +255,11 @@ def _read_docx_stdlib(raw: bytes) -> str:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             xml = z.read("word/document.xml")  # size/XML-bomb already vetted by _docx_xml_guard
         root = ET.fromstring(xml)
-    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
+    except Exception as exc:
+        # The enumerated catch list (BadZipFile/KeyError/ET.ParseError/OSError) is not
+        # exhaustive: a valid zip whose word/document.xml exists but has a corrupt DEFLATE
+        # payload makes z.read() raise zlib.error (not an OSError subclass). Catch broadly
+        # and report a clean UsageError (exit 2), matching _docx_xml_guard's posture.
         raise UsageError(f"cannot read .docx: {exc}")
     paras: List[str] = []
     for p in root.iter(w + "p"):
@@ -890,8 +894,8 @@ def _parse_date_match(rx: "re.Pattern[str]", m: "re.Match[str]") -> Tuple[Option
 
 def rule_date_sanity(a: Analysis) -> List[Finding]:
     out: List[Finding] = []
-    effective: Optional[Tuple[dt.date, int]] = None
-    expiry: Optional[Tuple[dt.date, int]] = None
+    effectives: List[Tuple[dt.date, int]] = []
+    expiries: List[Tuple[dt.date, int]] = []
     for i, line in enumerate(a.lines, 1):
         for rx in _DATE_PATTERNS:
             for m in rx.finditer(line):
@@ -906,18 +910,33 @@ def rule_date_sanity(a: Analysis) -> List[Finding]:
                 if date is None:
                     continue
                 before = line[: m.start()]
-                if effective is None and _EFFECTIVE_RE.search(before):
-                    effective = (date, i)
-                elif expiry is None and _EXPIRY_RE.search(before):
-                    expiry = (date, i)
-    if effective is not None and expiry is not None and expiry[0] < effective[0]:
-        at = expiry[1]
-        out.append(Finding(
-            "date-sanity", SEVERITY_WARNING,
-            f"expiration/termination date {expiry[0].isoformat()} precedes the "
-            f"effective date {effective[0].isoformat()}",
-            at, a.excerpt(at),
-        ))
+                # Classify by the nearest preceding keyword, not merely any match in
+                # `before`: a single line can carry both an effective and an expiry date
+                # (e.g. "Effective ... 2026-05-01. This expires on 2026-01-01."), so the
+                # rightmost-matching keyword wins.
+                eff = list(_EFFECTIVE_RE.finditer(before))
+                exp = list(_EXPIRY_RE.finditer(before))
+                eff_at = eff[-1].start() if eff else -1
+                exp_at = exp[-1].start() if exp else -1
+                if eff_at == -1 and exp_at == -1:
+                    continue
+                if eff_at >= exp_at:
+                    effectives.append((date, i))
+                else:
+                    expiries.append((date, i))
+    # Evaluate all matched pairs: an expiry that precedes the earliest effective date
+    # is out of order. Comparing against the earliest effective date is the most
+    # forgiving (a later effective date is never violated if the earliest isn't).
+    if effectives:
+        earliest_effective = min(effectives, key=lambda e: e[0])
+        for exp_date, at in expiries:
+            if exp_date < earliest_effective[0]:
+                out.append(Finding(
+                    "date-sanity", SEVERITY_WARNING,
+                    f"expiration/termination date {exp_date.isoformat()} precedes the "
+                    f"effective date {earliest_effective[0].isoformat()}",
+                    at, a.excerpt(at),
+                ))
     out.sort(key=lambda f: (f.line, f.column or 0))
     return out
 
@@ -1158,7 +1177,13 @@ def _apply_config_file(cfg: Config, path: Path) -> None:
                     setting.severity = sev
     ignore = data.get("ignore", [])
     if isinstance(ignore, list):
-        cfg.ignore.extend(str(p) for p in ignore)
+        for p in ignore:
+            pattern = str(p)
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise UsageError(f"invalid ignore pattern in {path}: {exc}")
+            cfg.ignore.append(pattern)
     cfg.sources.append(str(path))
 
 
@@ -1463,7 +1488,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
         _out(render_table("demo-contract.md", fmt, findings))
         _eprint("")
         _eprint(_dim("  Try:  contract-lint demo --json | jq '.summary'"))
-    return EXIT_OK
+    return EXIT_OK if ok else EXIT_FINDINGS
 
 
 # ---------------------------------------------------------------------------

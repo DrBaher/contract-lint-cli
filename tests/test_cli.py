@@ -54,8 +54,9 @@ def test_default_command_is_lint(tmp_path: Path, capsys: pytest.CaptureFixture[s
 
 def test_global_flag_before_subcommand_not_misrouted(capsys: pytest.CaptureFixture[str]) -> None:
     # `--no-color demo` must run the demo subcommand, not lint a file named "demo".
+    # (The demo sample is deliberately flawed, so the gate trips -> EXIT_FINDINGS.)
     code, out, err = run(["--no-color", "demo"], capsys)
-    assert code == 0
+    assert code == cl.EXIT_FINDINGS
     assert "demo-contract.md" in out
 
 

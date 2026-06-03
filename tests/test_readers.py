@@ -107,6 +107,40 @@ def test_docx_malformed_document_xml_errors_cleanly(
     assert "docx" in capsys.readouterr().err.lower()
 
 
+def test_docx_corrupt_deflate_payload_errors_cleanly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Regression: a valid zip whose word/document.xml exists (so the XML-bomb guard
+    # passes) but whose DEFLATE payload is corrupt makes z.read() raise zlib.error,
+    # which is NOT an OSError subclass. It must exit 2 (usage), not a raw traceback (exit 1).
+    import io
+    import struct
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(
+            "word/document.xml",
+            "<w:document><w:body><w:p><w:t>hello</w:t></w:p></w:body></w:document>" * 50,
+        )
+    raw = bytearray(buf.getvalue())
+    # Corrupt the compressed data region of the local file entry so inflate fails.
+    off = raw.find(b"PK\x03\x04")
+    namelen = struct.unpack("<H", raw[off + 26 : off + 28])[0]
+    extralen = struct.unpack("<H", raw[off + 28 : off + 30])[0]
+    data_start = off + 30 + namelen + extralen
+    for i in range(data_start + 5, data_start + 40):
+        raw[i] ^= 0xFF
+
+    f = tmp_path / "corrupt-deflate.docx"
+    f.write_bytes(bytes(raw))
+    with pytest.raises(cl.UsageError):
+        cl.read_document(str(f))
+    code = cl.main([str(f)])
+    assert code == cl.EXIT_USAGE
+    assert "docx" in capsys.readouterr().err.lower()
+
+
 @pytest.mark.skipif(importlib.util.find_spec("pypdf") is not None, reason="pypdf installed")
 def test_pdf_without_extra_errors_clearly(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     f = tmp_path / "c.pdf"

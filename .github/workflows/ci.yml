@@ -39,8 +39,9 @@ jobs:
       - name: Locale-safe / ASCII output check (UTF-8 disabled)
         if: runner.os != 'Windows'
         run: |
-          LC_ALL=C LANG=C python contract_lint_cli.py demo > /dev/null
-          LC_ALL=C LANG=C python contract_lint_cli.py demo --json > /dev/null
+          # demo trips the gate (exit 1) on the deliberately-flawed sample; only a crash (exit 2) should fail this check.
+          LC_ALL=C LANG=C python contract_lint_cli.py demo > /dev/null; test $? -le 1
+          LC_ALL=C LANG=C python contract_lint_cli.py demo --json > /dev/null; test $? -le 1
           LC_ALL=C LANG=C python contract_lint_cli.py --version
 
   typecheck:
@@ -120,7 +121,7 @@ jobs:
           /tmp/smoke/bin/python -m pip install --upgrade pip
           /tmp/smoke/bin/python -m pip install dist/*.whl
           /tmp/smoke/bin/contract-lint --version
-          /tmp/smoke/bin/contract-lint demo > /dev/null
+          /tmp/smoke/bin/contract-lint demo > /dev/null; test $? -le 1  # demo trips the gate (exit 1) on the flawed sample
           /tmp/smoke/bin/contract-lint --catalog json > /dev/null
       - uses: actions/upload-artifact@v4
         with:
