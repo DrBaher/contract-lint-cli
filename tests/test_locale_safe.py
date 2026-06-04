@@ -35,19 +35,22 @@ def _run_ascii(*args: str) -> subprocess.CompletedProcess:
 
 
 def test_demo_human_does_not_crash_under_ascii_locale() -> None:
-    # Send stdout to a real file (os.devnull) exactly like the CI check's
-    # `demo > /dev/null` — a plain file under a C locale is what triggers the
-    # ASCII-codec crash; a captured PIPE does not reproduce it.
+    # Mirror the CI check EXACTLY: inherit the full environment, set only
+    # LC_ALL/LANG=C, send stdout to a real file (os.devnull). On failure, dump
+    # the encoding-relevant env vars so the trigger is identifiable.
     env = dict(os.environ, LC_ALL="C", LANG="C")
-    for var in ("PYTHONUTF8", "PYTHONIOENCODING", "PYTHONCOERCECLOCALE"):
-        env.pop(var, None)
     with open(os.devnull, "wb") as devnull:
         r = subprocess.run(
             [sys.executable, str(CLI), "demo"],
             stdout=devnull, stderr=subprocess.PIPE, text=True, env=env,
         )
+    relevant = {k: os.environ.get(k) for k in (
+        "PYTHONUTF8", "PYTHONIOENCODING", "PYTHONCOERCECLOCALE",
+        "PYTHONLEGACYWINDOWSSTDIO", "LC_ALL", "LANG")}
     assert r.returncode <= 1, (
         f"demo crashed under a C locale (exit {r.returncode}).\n"
+        f"env: {relevant}\n"
+        f"sys.stdout.encoding(parent)={sys.stdout.encoding}\n"
         f"--- stderr ---\n{r.stderr}"
     )
     assert "UnicodeEncodeError" not in r.stderr, r.stderr
