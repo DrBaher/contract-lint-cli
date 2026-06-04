@@ -11,14 +11,17 @@ major bump; new optional fields are minor additions.
 ## [0.2.4] - 2026-06-04
 
 ### Fixed
-- **`demo` (and other human output) no longer crashes under a non-UTF-8 locale.**
-  Human output carries a few non-ASCII glyphs; under a C/POSIX locale the stdout
-  codec could be ASCII and strict encoding raised `UnicodeEncodeError` at
-  write/flush, surfacing as a crash (the CI locale check has been red since
-  0.2.3). `_configure_streams` now forces UTF-8 with `errors="backslashreplace"`
-  (encoding can never raise) and rewraps the raw buffer as a fallback. JSON
-  output stays `ensure_ascii` and is unchanged. Adds a regression test that runs
-  the CLI under a forced-ASCII locale.
+- **CI "Locale-safe" check fixed; defensive output hardening.** The check had
+  been red since 0.2.3 — but `demo` was never crashing. The step runs under
+  `bash -e`, where `demo > /dev/null; test $? -le 1` aborts at the demo's *exit-1
+  gate trip* (correct behaviour on the flawed sample) before the `; test` can
+  run; switched to `demo ... || test $? -le 1` so the gate trip is tolerated
+  while a real crash (exit ≥ 2) still fails the check. Separately, as defensive
+  hardening, `_configure_streams` now forces UTF-8 with
+  `errors="backslashreplace"` so human output (which carries a few non-ASCII
+  glyphs) can never raise `UnicodeEncodeError` under a C/POSIX locale; JSON
+  output stays `ensure_ascii`. Adds regression tests for the gate exit and the
+  `bash -e` check idiom.
 
 ## [0.2.3] - 2026-06-03
 

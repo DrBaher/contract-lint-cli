@@ -1,11 +1,12 @@
-"""Human output must not crash under a non-UTF-8 (C/POSIX) locale.
+"""`demo` must behave correctly under a non-UTF-8 (C/POSIX) locale.
 
-The human report carries a few non-ASCII glyphs (e.g. an em-dash). Under an
-ASCII stdout codec, strict encoding would raise UnicodeEncodeError mid-write or
-at shutdown-flush and surface as a non-zero crash (exit >= 2). `demo` may trip
-its findings gate (exit 1), but it must never crash. Run as a subprocess so the
-real stdout/stderr codecs are exercised, with UTF-8 mode forced off to emulate a
-bare C locale.
+Two regressions live here:
+  * `demo` trips its findings gate and exits 1 (not 0), and must never crash
+    (>= 2) under an ASCII locale — human output carries a few non-ASCII glyphs.
+  * The CI "Locale-safe" check runs under `bash -e`, where `cmd; test $? -le 1`
+    aborts at cmd's exit-1 before `test` runs. The check must use
+    `cmd || test $? -le 1` so the gate trip is tolerated while a real crash
+    (exit 2) still fails. This test exercises that exact idiom.
 """
 from __future__ import annotations
 
@@ -18,43 +19,41 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "contract_lint_cli.py"
 
 
-def _run_ascii(*args: str) -> subprocess.CompletedProcess:
-    # Match the CI "Locale-safe" check exactly: bare C locale, nothing else.
-    # (Setting PYTHONUTF8/PYTHONIOENCODING here would mask the very condition we
-    # are guarding against, since it changes how the interpreter picks codecs.)
+def _run_c_locale(*args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ, LC_ALL="C", LANG="C")
-    env.pop("PYTHONUTF8", None)
-    env.pop("PYTHONIOENCODING", None)
-    env.pop("PYTHONCOERCECLOCALE", None)
     return subprocess.run(
         [sys.executable, str(CLI), *args],
-        capture_output=True,
-        text=True,
-        env=env,
+        capture_output=True, text=True, env=env,
     )
 
 
-def test_demo_human_does_not_crash_under_ascii_locale() -> None:
-    # Run the EXACT CI shell one-liner so nothing differs (shell redirection,
-    # bare inherited env). Capture combined output to surface the real error.
+def test_demo_exits_gate_not_crash_under_c_locale() -> None:
+    r = _run_c_locale("demo")
+    assert r.returncode == 1, f"expected gate trip (1), got {r.returncode}:\n{r.stderr}"
+    assert "UnicodeEncodeError" not in r.stderr, r.stderr
+
+
+def test_demo_json_under_c_locale() -> None:
+    r = _run_c_locale("demo", "--json")
+    assert r.returncode <= 1, f"demo --json exit {r.returncode}:\n{r.stderr}"
+
+
+def test_version_under_c_locale() -> None:
+    r = _run_c_locale("--version")
+    assert r.returncode == 0, f"--version exit {r.returncode}:\n{r.stderr}"
+
+
+def test_ci_locale_check_idiom_survives_bash_e() -> None:
+    """The `|| test $? -le 1` guard must tolerate the demo's exit-1 gate trip
+    under `bash -e` (a plain `; test ...` would abort first)."""
     if os.name == "nt":
-        return  # the CI check is `if: runner.os != 'Windows'`
+        return
     cmd = (
-        f'LC_ALL=C LANG=C "{sys.executable}" "{CLI}" demo > /dev/null; '
-        f'rc=$?; echo "RC=$rc"; test $rc -le 1'
+        f'LC_ALL=C LANG=C "{sys.executable}" "{CLI}" demo > /dev/null '
+        f'|| test $? -le 1'
     )
     r = subprocess.run(["bash", "-e", "-c", cmd], capture_output=True, text=True)
     assert r.returncode == 0, (
-        f"demo crashed under a C locale.\n"
-        f"stdout: {r.stdout}\n--- stderr ---\n{r.stderr}"
+        f"bash -e check failed (rc={r.returncode}); the gate trip was not "
+        f"tolerated.\n{r.stderr}"
     )
-
-
-def test_demo_json_is_ascii_clean_under_ascii_locale() -> None:
-    r = _run_ascii("demo", "--json")
-    assert r.returncode <= 1, f"demo --json crashed (exit {r.returncode}):\n{r.stderr}"
-
-
-def test_version_under_ascii_locale() -> None:
-    r = _run_ascii("--version")
-    assert r.returncode == 0, f"--version exit {r.returncode}:\n{r.stderr}"

@@ -88,38 +88,11 @@ class UsageError(LintError):
 
 
 def _configure_streams() -> None:
-    """Make stdout/stderr crash-proof under any locale.
-
-    Human output carries a few non-ASCII glyphs (e.g. an em-dash). Under a
-    C/POSIX locale a stream can end up with an ASCII codec, and `errors="strict"`
-    would then raise `UnicodeEncodeError` mid-write or at shutdown-flush — which
-    the CLI surfaces as a non-zero crash. We force UTF-8 *and* `backslashreplace`
-    so encoding can never raise: if UTF-8 sticks the glyphs render normally; if
-    some environment keeps an ASCII codec, unencodable chars degrade instead of
-    crashing. Falls back to rewrapping the raw binary buffer if `reconfigure`
-    isn't available. JSON output stays `ensure_ascii` and is unaffected."""
-    for name in ("stdout", "stderr"):
-        stream = getattr(sys, name, None)
-        original = getattr(sys, "__%s__" % name, None)
-        # Only touch the genuine interpreter streams. If something has replaced
-        # sys.stdout/err (e.g. a pytest capture object), leave it alone —
-        # rewrapping its buffer would close it out from under the harness.
-        if stream is None or stream is not original:
-            continue
-        # Rewrap the raw binary buffer rather than trusting reconfigure(): when
-        # stdout is a plain file (e.g. `> /dev/null`) under a bare C locale, some
-        # interpreter builds keep an ASCII codec that reconfigure() doesn't
-        # reliably override, and a strict encode then crashes at flush. A fresh
-        # UTF-8/backslashreplace wrapper can never raise on encode.
-        buffer = getattr(stream, "buffer", None)
-        if buffer is not None:
-            try:
-                setattr(sys, name, io.TextIOWrapper(
-                    buffer, encoding="utf-8", errors="backslashreplace",
-                    line_buffering=True))
-                continue
-            except (ValueError, OSError):
-                pass
+    """Force UTF-8 on stdout/stderr regardless of locale, with non-fatal encode
+    errors so human output (which carries a few glyphs, e.g. an em-dash) can
+    never raise `UnicodeEncodeError` under a C/POSIX locale. JSON output stays
+    `ensure_ascii` and is unaffected. No-op on POSIX UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             try:
