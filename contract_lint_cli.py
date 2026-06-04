@@ -100,13 +100,17 @@ def _configure_streams() -> None:
     isn't available. JSON output stays `ensure_ascii` and is unaffected."""
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name, None)
-        if stream is None:
+        original = getattr(sys, "__%s__" % name, None)
+        # Only touch the genuine interpreter streams. If something has replaced
+        # sys.stdout/err (e.g. a pytest capture object), leave it alone —
+        # rewrapping its buffer would close it out from under the harness.
+        if stream is None or stream is not original:
             continue
-        # Rewrap the raw binary buffer directly rather than trusting
-        # reconfigure() — when stdout is a plain file (e.g. `> /dev/null`) under a
-        # bare C locale, some interpreter builds keep an ASCII codec that
-        # reconfigure() doesn't reliably override, and a strict encode then
-        # crashes at flush. A fresh UTF-8/backslashreplace wrapper can never raise.
+        # Rewrap the raw binary buffer rather than trusting reconfigure(): when
+        # stdout is a plain file (e.g. `> /dev/null`) under a bare C locale, some
+        # interpreter builds keep an ASCII codec that reconfigure() doesn't
+        # reliably override, and a strict encode then crashes at flush. A fresh
+        # UTF-8/backslashreplace wrapper can never raise on encode.
         buffer = getattr(stream, "buffer", None)
         if buffer is not None:
             try:
@@ -116,7 +120,6 @@ def _configure_streams() -> None:
                 continue
             except (ValueError, OSError):
                 pass
-        # Streams without a .buffer (e.g. a test harness capture): best-effort.
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             try:
