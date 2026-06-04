@@ -102,19 +102,25 @@ def _configure_streams() -> None:
         stream = getattr(sys, name, None)
         if stream is None:
             continue
-        reconfigure = getattr(stream, "reconfigure", None)
-        if callable(reconfigure):
-            try:
-                reconfigure(encoding="utf-8", errors="backslashreplace")
-                continue
-            except (ValueError, OSError):
-                pass
+        # Rewrap the raw binary buffer directly rather than trusting
+        # reconfigure() — when stdout is a plain file (e.g. `> /dev/null`) under a
+        # bare C locale, some interpreter builds keep an ASCII codec that
+        # reconfigure() doesn't reliably override, and a strict encode then
+        # crashes at flush. A fresh UTF-8/backslashreplace wrapper can never raise.
         buffer = getattr(stream, "buffer", None)
         if buffer is not None:
             try:
                 setattr(sys, name, io.TextIOWrapper(
                     buffer, encoding="utf-8", errors="backslashreplace",
                     line_buffering=True))
+                continue
+            except (ValueError, OSError):
+                pass
+        # Streams without a .buffer (e.g. a test harness capture): best-effort.
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="backslashreplace")
             except (ValueError, OSError):
                 pass
 
