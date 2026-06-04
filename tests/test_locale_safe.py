@@ -19,14 +19,13 @@ CLI = ROOT / "contract_lint_cli.py"
 
 
 def _run_ascii(*args: str) -> subprocess.CompletedProcess:
-    env = dict(
-        os.environ,
-        LC_ALL="C",
-        LANG="C",
-        PYTHONUTF8="0",
-        PYTHONCOERCECLOCALE="0",
-        PYTHONIOENCODING="ascii",
-    )
+    # Match the CI "Locale-safe" check exactly: bare C locale, nothing else.
+    # (Setting PYTHONUTF8/PYTHONIOENCODING here would mask the very condition we
+    # are guarding against, since it changes how the interpreter picks codecs.)
+    env = dict(os.environ, LC_ALL="C", LANG="C")
+    env.pop("PYTHONUTF8", None)
+    env.pop("PYTHONIOENCODING", None)
+    env.pop("PYTHONCOERCECLOCALE", None)
     return subprocess.run(
         [sys.executable, str(CLI), *args],
         capture_output=True,
