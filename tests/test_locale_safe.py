@@ -35,25 +35,19 @@ def _run_ascii(*args: str) -> subprocess.CompletedProcess:
 
 
 def test_demo_human_does_not_crash_under_ascii_locale() -> None:
-    # Mirror the CI check EXACTLY: inherit the full environment, set only
-    # LC_ALL/LANG=C, send stdout to a real file (os.devnull). On failure, dump
-    # the encoding-relevant env vars so the trigger is identifiable.
-    env = dict(os.environ, LC_ALL="C", LANG="C")
-    with open(os.devnull, "wb") as devnull:
-        r = subprocess.run(
-            [sys.executable, str(CLI), "demo"],
-            stdout=devnull, stderr=subprocess.PIPE, text=True, env=env,
-        )
-    relevant = {k: os.environ.get(k) for k in (
-        "PYTHONUTF8", "PYTHONIOENCODING", "PYTHONCOERCECLOCALE",
-        "PYTHONLEGACYWINDOWSSTDIO", "LC_ALL", "LANG")}
-    assert r.returncode <= 1, (
-        f"demo crashed under a C locale (exit {r.returncode}).\n"
-        f"env: {relevant}\n"
-        f"sys.stdout.encoding(parent)={sys.stdout.encoding}\n"
-        f"--- stderr ---\n{r.stderr}"
+    # Run the EXACT CI shell one-liner so nothing differs (shell redirection,
+    # bare inherited env). Capture combined output to surface the real error.
+    if os.name == "nt":
+        return  # the CI check is `if: runner.os != 'Windows'`
+    cmd = (
+        f'LC_ALL=C LANG=C "{sys.executable}" "{CLI}" demo > /dev/null; '
+        f'rc=$?; echo "RC=$rc"; test $rc -le 1'
     )
-    assert "UnicodeEncodeError" not in r.stderr, r.stderr
+    r = subprocess.run(["bash", "-e", "-c", cmd], capture_output=True, text=True)
+    assert r.returncode == 0, (
+        f"demo crashed under a C locale.\n"
+        f"stdout: {r.stdout}\n--- stderr ---\n{r.stderr}"
+    )
 
 
 def test_demo_json_is_ascii_clean_under_ascii_locale() -> None:
