@@ -8,6 +8,18 @@ major bump; new optional fields are minor additions.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-06-04
+
+### Fixed
+- **`demo` (and other human output) no longer crashes under a non-UTF-8 locale.**
+  Human output carries a few non-ASCII glyphs; under a C/POSIX locale the stdout
+  codec could be ASCII and strict encoding raised `UnicodeEncodeError` at
+  write/flush, surfacing as a crash (the CI locale check has been red since
+  0.2.3). `_configure_streams` now forces UTF-8 with `errors="backslashreplace"`
+  (encoding can never raise) and rewraps the raw buffer as a fallback. JSON
+  output stays `ensure_ascii` and is unchanged. Adds a regression test that runs
+  the CLI under a forced-ASCII locale.
+
 ## [0.2.3] - 2026-06-03
 
 ### Fixed — robustness/correctness from a follow-up source audit

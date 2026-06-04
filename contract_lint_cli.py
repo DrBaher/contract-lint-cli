@@ -33,7 +33,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -88,13 +88,33 @@ class UsageError(LintError):
 
 
 def _configure_streams() -> None:
-    """Force UTF-8 on stdout/stderr regardless of locale (ASCII-safe output is a
-    separate concern; we always emit ensure_ascii JSON). No-op on POSIX UTF-8."""
-    for stream in (sys.stdout, sys.stderr):
+    """Make stdout/stderr crash-proof under any locale.
+
+    Human output carries a few non-ASCII glyphs (e.g. an em-dash). Under a
+    C/POSIX locale a stream can end up with an ASCII codec, and `errors="strict"`
+    would then raise `UnicodeEncodeError` mid-write or at shutdown-flush — which
+    the CLI surfaces as a non-zero crash. We force UTF-8 *and* `backslashreplace`
+    so encoding can never raise: if UTF-8 sticks the glyphs render normally; if
+    some environment keeps an ASCII codec, unencodable chars degrade instead of
+    crashing. Falls back to rewrapping the raw binary buffer if `reconfigure`
+    isn't available. JSON output stays `ensure_ascii` and is unaffected."""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             try:
-                reconfigure(encoding="utf-8")
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+                continue
+            except (ValueError, OSError):
+                pass
+        buffer = getattr(stream, "buffer", None)
+        if buffer is not None:
+            try:
+                setattr(sys, name, io.TextIOWrapper(
+                    buffer, encoding="utf-8", errors="backslashreplace",
+                    line_buffering=True))
             except (ValueError, OSError):
                 pass
 
