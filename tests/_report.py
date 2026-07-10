@@ -23,12 +23,12 @@ import contract_lint_cli as cl  # noqa: E402
 def default_report(path: Path, enable: Optional[List[str]] = None,
                    fail_on: str = "error") -> Dict[str, Any]:
     os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="cl-xdg-")  # no suite-wide config leaks in
-    text, fmt = cl.read_document(str(path))
+    text, fmt, numbering = cl.read_document(str(path))
     args = argparse.Namespace(config=None, enable=enable, disable=None)
     cfg = cl.load_config(str(path), args)
-    analysis = cl.analyze(text, fmt)
+    analysis = cl.analyze(text, fmt, numbering)
     findings = cl.lint(analysis, cfg)
     ok = not cl.gate_tripped(findings, fail_on)
-    report = cl.build_json(path.name, fmt, findings, fail_on, ok)
+    report = cl.build_json(path.name, fmt, findings, fail_on, ok, numbering)
     report["version"] = "X.Y.Z"  # pin the volatile field so goldens survive version bumps
     return report

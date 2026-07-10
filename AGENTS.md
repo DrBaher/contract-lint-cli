@@ -22,6 +22,12 @@ text. You don't need the rest of the suite to use it.
   byte-identical output, so it diffs cleanly in CI and snapshot tests. It includes `ok`
   (boolean) and `exit_code`, a `summary` (`error`/`warning`/`total`/`by_rule`), and a
   `findings[]` array; each finding is `{ rule, severity, message, line, column?, excerpt }`.
+- **`numbering_resolved`** (`true` / `false` / `null`) reports whether Word's automatic list
+  numbering made it into the linted text. `true` means every numbered paragraph resolved (a
+  document with none is also `true` — nothing to resolve is not a failure to resolve);
+  `false` means it did not, and `broken-xref`/`numbering` findings are downgraded to warnings
+  that say so; `null` means numbering isn't a concept for the input. See
+  [docs/reference/docx-numbering.md](docs/reference/docx-numbering.md).
 - **`--check`**: print nothing; communicate purely via the exit code (the leanest gate).
 - **stderr** is for humans only: `--why` rationale (`[why] …`), warnings, the `demo` banner,
   and errors. stdout stays clean for piping (`| jq`, `> lint.sarif`).
@@ -63,7 +69,8 @@ Shell completion: `contract-lint completion bash|zsh` emits a script; it calls a
 | Symptom | Diagnose | Recover |
 |---|---|---|
 | Exit `2`, "no such file" / "is a directory" | Bad path. | Pass a real file, or pipe text: `extract doc.pdf \| contract-lint - --format md`. |
-| Exit `2`, "reading .pdf needs the optional extra" | `.pdf`/`.docx` reading needs a backend. | `pip install "contract-lint[pdf]"` (or `[docx]`), or convert first with `extract`. |
+| Exit `2`, "reading .pdf needs the optional extra" | `.pdf` reading needs a backend (`.docx` does not). | `pip install "contract-lint[pdf]"`, or convert first with `extract`. |
+| `numbering_resolved: false` in the report | The document's automatic list numbering did not resolve; the numbers Word displays are **not** in the linted text. | `broken-xref`/`numbering` findings are already downgraded to warnings. Don't relay them as defects — check the document in Word, or run `--why` for the reason. |
 | Exit `2`, "--json and --sarif are mutually exclusive" | Both machine formats requested. | Pick one. |
 | Exit `2`, "unknown rule" / "invalid config" | A bad rule id in `--enable/--disable` or a malformed `.contract-lint.json`. | List valid ids with `contract-lint rules --json`; fix the config. |
 | Exit `1` with `placeholder`/`broken-xref` errors | Real defects: unfilled blanks, dangling cross-refs. | Fix the document, then re-run. These block signing. |

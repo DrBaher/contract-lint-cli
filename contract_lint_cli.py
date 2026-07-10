@@ -3,7 +3,7 @@
 consistency and surfaces defects with CI-gateable exit codes. Single-file,
 stdlib-only.
 
-Point it at a contract (.md/.txt/.html natively; .docx/.pdf via optional extras)
+Point it at a contract (.md/.txt/.html/.docx natively; .pdf via an optional extra)
 and it reports leftover placeholders, broken cross-references, undefined or unused
 defined terms, duplicate definitions, heading-number gaps, inconsistent party
 spellings, and impossible dates — each as a finding with a stable rule id, a
@@ -171,9 +171,10 @@ def _why(args: argparse.Namespace, header: str, *lines: str) -> None:
 # ---------------------------------------------------------------------------
 # Document readers — lint operates on the document's TEXT (it needs original
 # numbering, cross-references, and defined-term casing), never on normalized JSON.
-# .md/.txt/.html read natively (stdlib); .docx/.pdf use a best-effort stdlib reader
-# and prefer the higher-fidelity optional extra (python-docx / pypdf, pulled in by
-# `contract-lint[docx]` / `[pdf]`, which install extract-cli's backends) when present.
+# .md/.txt/.html/.docx read natively (stdlib). The .docx reader resolves Word's
+# automatic list numbering, which python-docx's `paragraph.text` does not expose —
+# so the `[docx]` extra is a fallback here, not the preferred path. .pdf prefers the
+# optional pypdf extra (`contract-lint[pdf]`, which installs extract-cli's backend).
 # ---------------------------------------------------------------------------
 
 
@@ -226,65 +227,382 @@ def _read_html(raw_text: str) -> str:
     return parser.get_text()
 
 
+# Every XML part the reader parses is attack surface, not just document.xml: resolving
+# list numbering means parsing numbering.xml and styles.xml too.
+_DOCX_XML_PARTS = ("word/document.xml", "word/numbering.xml", "word/styles.xml")
+
+
 def _docx_xml_guard(raw: bytes) -> Optional[str]:
-    """Return a reason string if word/document.xml is unsafe to parse (zip bomb or a
-    declared DTD/entities — the 'billion laughs' vector), else None. A legitimate
-    OOXML document.xml never declares a DTD, so refusing is safe."""
+    """Return a reason string if any XML part we parse is unsafe (zip bomb or a declared
+    DTD/entities — the 'billion laughs' vector), else None. A legitimate OOXML part never
+    declares a DTD, so refusing is safe."""
     import zipfile
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            info = z.getinfo("word/document.xml")
-            if info.file_size > MAX_DECOMPRESSED_BYTES:
-                return f"word/document.xml decompresses to {info.file_size} bytes (over cap)"
-            with z.open("word/document.xml") as f:
-                head = f.read(65536)
+            names = set(z.namelist())
+            if "word/document.xml" not in names:
+                return None  # let the reader report it
+            for name in _DOCX_XML_PARTS:
+                if name not in names:
+                    continue  # numbering.xml/styles.xml are optional
+                info = z.getinfo(name)
+                if info.file_size > MAX_DECOMPRESSED_BYTES:
+                    return f"{name} decompresses to {info.file_size} bytes (over cap)"
+                with z.open(name) as f:
+                    head = f.read(65536)  # a DTD can only be declared in the prolog
+                if re.search(rb"<!DOCTYPE|<!ENTITY", head, re.IGNORECASE):
+                    return f"{name.rpartition('/')[2]} declares a DTD/entities (XML-bomb guard)"
     except Exception:
-        return None  # not a valid zip / no document.xml -> let the reader report it
-    if re.search(rb"<!DOCTYPE|<!ENTITY", head, re.IGNORECASE):
-        return "document.xml declares a DTD/entities (XML-bomb guard)"
+        return None  # not a valid zip -> let the reader report it
     return None
 
 
-def _read_docx_stdlib(raw: bytes) -> str:
+# ---------------------------------------------------------------------------
+# WordprocessingML automatic list numbering.
+#
+# Word stores a paragraph's visible number nowhere in its text. A numbered paragraph
+# carries only `w:pPr/w:numPr` — an (ilvl, numId) pointer — and the number is computed
+# at render time from `word/numbering.xml`:
+#
+#     numId -> abstractNumId -> per-level {numFmt, lvlText, start}
+#
+# A reader that pulls only `w:t` nodes therefore produces an *unnumbered* document: a
+# contract whose clauses are numbered 1-20 in Word yields text with no numbers, and an
+# in-body reference to "Section 7" has no target. rule_broken_xref then reports a
+# drafting defect that exists only in our extraction. We resolve numbering here, and
+# say so when we cannot — see the Numbering record below.
+# ---------------------------------------------------------------------------
+
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _w(tag: str) -> str:
+    return f"{{{_W_NS}}}{tag}"
+
+
+def _w_val(el: Any, default: Any = None) -> Any:
+    """Read the `w:val` attribute off an element (or `default` if absent)."""
+    if el is None:
+        return default
+    val = el.get(_w("val"))
+    return default if val is None else val
+
+
+@dataclasses.dataclass(frozen=True)
+class Numbering:
+    """Whether a document's automatic numbering made it into the extracted text.
+
+    `resolved` is True when every numbered paragraph was resolved to its visible
+    number — and also when the document has no numbered paragraphs at all, because
+    nothing to resolve is not a failure to resolve. It is False when numbering.xml is
+    absent or unparseable, a numFmt is unsupported, or a fallback reader was used;
+    `reason` then says which. Rules downgrade rather than assert when it is False.
+    """
+    resolved: bool
+    numbered_paragraphs: int
+    reason: Optional[str] = None
+
+
+_ROMAN_NUMERALS = (
+    (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"),
+    (50, "l"), (40, "xl"), (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+)
+
+
+def _to_roman(n: int) -> str:
+    if n <= 0:
+        return ""
+    out: List[str] = []
+    for value, numeral in _ROMAN_NUMERALS:
+        while n >= value:
+            out.append(numeral)
+            n -= value
+    return "".join(out)
+
+
+def _to_letter(n: int) -> str:
+    """Word's alphabetic sequence: a..z, then aa, bb, cc — not ab."""
+    if n <= 0:
+        return ""
+    idx = n - 1
+    return chr(ord("a") + idx % 26) * (idx // 26 + 1)
+
+
+def _render_number(fmt: str, n: int) -> Optional[str]:
+    """Render counter `n` in Word's `numFmt`. Returns None for formats that produce no
+    usable text (bullets) and for ones we don't understand — the caller treats the
+    latter as a resolution failure rather than guessing a number."""
+    if fmt == "decimal":
+        return str(n)
+    if fmt == "decimalZero":
+        return f"{n:02d}"
+    if fmt == "lowerLetter":
+        return _to_letter(n)
+    if fmt == "upperLetter":
+        return _to_letter(n).upper()
+    if fmt == "lowerRoman":
+        return _to_roman(n)
+    if fmt == "upperRoman":
+        return _to_roman(n).upper()
+    if fmt == "none":
+        return ""
+    return None  # `bullet` and anything unrecognised
+
+
+def _parse_docx_numbering(root: Any) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
+    """Parse `word/numbering.xml` into:
+
+    abstract: {abstractNumId: {ilvl: {"fmt", "text", "start"}}}
+    nums:     {numId: {"abstract": abstractNumId, "overrides": {ilvl: {...}}}}
+    """
+    abstract: Dict[str, Dict[int, Dict[str, Any]]] = {}
+    nums: Dict[str, Dict[str, Any]] = {}
+
+    for anum in root.findall(_w("abstractNum")):
+        aid = anum.get(_w("abstractNumId"))
+        if aid is None:
+            continue  # unaddressable: nothing can point at it
+        levels: Dict[int, Dict[str, Any]] = {}
+        for lvl in anum.findall(_w("lvl")):
+            levels[int(lvl.get(_w("ilvl"), "0"))] = {
+                "fmt": _w_val(lvl.find(_w("numFmt")), "decimal"),
+                "text": _w_val(lvl.find(_w("lvlText")), ""),
+                "start": int(_w_val(lvl.find(_w("start")), "1") or 1),
+            }
+        abstract[aid] = levels
+
+    for num in root.findall(_w("num")):
+        nid = num.get(_w("numId"))
+        if nid is None:
+            continue
+        entry: Dict[str, Any] = {"abstract": _w_val(num.find(_w("abstractNumId"))), "overrides": {}}
+        for override in num.findall(_w("lvlOverride")):
+            spec: Dict[str, Any] = {}
+            start_override = override.find(_w("startOverride"))
+            if start_override is not None:
+                spec["start"] = int(_w_val(start_override, "1") or 1)
+            lvl = override.find(_w("lvl"))
+            if lvl is not None:
+                fmt = _w_val(lvl.find(_w("numFmt")))
+                lvl_text = _w_val(lvl.find(_w("lvlText")))
+                if fmt is not None:
+                    spec["fmt"] = fmt
+                if lvl_text is not None:
+                    spec["text"] = lvl_text
+            if spec:
+                entry["overrides"][int(override.get(_w("ilvl"), "0"))] = spec
+        nums[nid] = entry
+
+    return abstract, nums
+
+
+def _parse_docx_style_numbering(root: Any) -> Dict[str, Tuple[str, int]]:
+    """Map styleId -> (numId, ilvl) for styles that carry numbering, resolving `w:basedOn`
+    inheritance. Contract templates frequently number through a style rather than on the
+    paragraph itself, so a paragraph-only reader misses them entirely."""
+    raw: Dict[str, Tuple[str, int]] = {}
+    based_on: Dict[str, str] = {}
+    for style in root.findall(_w("style")):
+        sid = style.get(_w("styleId"))
+        if not sid:
+            continue
+        parent = _w_val(style.find(_w("basedOn")))
+        if parent:
+            based_on[sid] = parent
+        numpr = style.find(f"{_w('pPr')}/{_w('numPr')}")
+        if numpr is not None:
+            num_id = _w_val(numpr.find(_w("numId")))
+            if num_id:
+                raw[sid] = (num_id, int(_w_val(numpr.find(_w("ilvl")), "0") or 0))
+
+    def resolve(sid: str, seen: Tuple[str, ...] = ()) -> Optional[Tuple[str, int]]:
+        if sid in raw:
+            return raw[sid]
+        parent = based_on.get(sid)
+        if not parent or parent in seen:  # a cyclic basedOn chain must not recurse forever
+            return None
+        return resolve(parent, seen + (sid,))
+
+    resolved = ((sid, resolve(sid)) for sid in set(raw) | set(based_on))
+    return {sid: found for sid, found in resolved if found}
+
+
+def _paragraph_numbering(para: Any, style_numbering: Dict[str, Tuple[str, int]]) -> Optional[Tuple[str, int]]:
+    """A paragraph's effective (numId, ilvl): its own w:numPr, else one inherited
+    through its w:pStyle."""
+    ppr = para.find(_w("pPr"))
+    if ppr is None:
+        return None
+    numpr = ppr.find(_w("numPr"))
+    if numpr is not None:
+        num_id = _w_val(numpr.find(_w("numId")))
+        if num_id:
+            return num_id, int(_w_val(numpr.find(_w("ilvl")), "0") or 0)
+    style_id = _w_val(ppr.find(_w("pStyle")))
+    if style_id:
+        return style_numbering.get(style_id)
+    return None
+
+
+def _paragraph_text(para: Any) -> str:
+    """Visible run text of a paragraph. `w:tab`/`w:br` render as a space; text inside
+    `w:instrText` (field codes) and `w:delText` (tracked deletions) is not visible and
+    is skipped by only reading `w:t`."""
+    parts: List[str] = []
+    for node in para.iter():
+        if node.tag == _w("t"):
+            parts.append(node.text or "")
+        elif node.tag in (_w("tab"), _w("br")):
+            parts.append(" ")
+    return "".join(parts).strip()
+
+
+def _docx_numbered_paragraphs(
+    document: Any,
+    abstract: Dict[str, Dict[int, Dict[str, Any]]],
+    nums: Dict[str, Dict[str, Any]],
+    style_numbering: Dict[str, Tuple[str, int]],
+) -> Tuple[List[str], int, Optional[str]]:
+    """Walk body paragraphs in document order, prepending each one's computed number.
+    Returns (lines, numbered_count, unresolved_reason). One line per `w:p`, empty ones
+    included: a finding's line number is its anchor, and dropping a blank paragraph
+    would shift every line below it."""
+    counters: Dict[Tuple[str, int], int] = {}
+    lines: List[str] = []
+    numbered = 0
+    unresolved: Optional[str] = None
+
+    def level_spec(num_id: str, ilvl: int) -> Dict[str, Any]:
+        entry = nums.get(num_id) or {}
+        abstract_id: str = entry.get("abstract") or ""
+        spec = dict(abstract.get(abstract_id, {}).get(ilvl, {}))
+        spec.update(entry.get("overrides", {}).get(ilvl, {}))
+        return spec
+
+    for para in document.iter(_w("p")):
+        text = _paragraph_text(para)
+        numbering = _paragraph_numbering(para, style_numbering)
+
+        prefix = ""
+        if numbering:
+            num_id, ilvl = numbering
+            spec = level_spec(num_id, ilvl)
+            if not spec:
+                unresolved = unresolved or f"no level definition for numId={num_id} ilvl={ilvl}"
+            else:
+                key = (num_id, ilvl)
+                counters[key] = counters.get(key, spec.get("start", 1) - 1) + 1
+                # A new item at this level restarts every deeper level beneath it.
+                for deeper in [k for k in counters if k[0] == num_id and k[1] > ilvl]:
+                    del counters[deeper]
+
+                rendered = _render_number(spec.get("fmt", "decimal"), counters[key])
+                if rendered is None:
+                    # A bullet has no number; that is not a resolution failure.
+                    if spec.get("fmt") != "bullet":
+                        unresolved = unresolved or f"unsupported numFmt {spec.get('fmt')!r}"
+                else:
+                    numbered += 1
+                    # Substitute %1..%9 with the counter of each ancestor level, so a
+                    # lvlText of "%1.%2" renders as "2.1".
+                    label = spec.get("text") or "%1."
+                    for lvl in range(9):
+                        token = f"%{lvl + 1}"
+                        if token not in label:
+                            continue
+                        ancestor = level_spec(num_id, lvl)
+                        value = counters.get((num_id, lvl), ancestor.get("start", 1))
+                        label = label.replace(
+                            token, _render_number(ancestor.get("fmt", "decimal"), value) or ""
+                        )
+                    prefix = label.strip()
+
+        lines.append(f"{prefix} {text}".strip() if prefix else text)
+
+    return lines, numbered, unresolved
+
+
+def _read_docx_stdlib(raw: bytes) -> Tuple[str, Numbering]:
+    """Text of a .docx with automatic list numbering resolved, plus the record of
+    whether it was."""
     import xml.etree.ElementTree as ET
     import zipfile
 
-    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
     # _docx_xml_guard returns None for a bad zip / missing document.xml ("let the reader
     # report it"), so the reader must turn those — plus malformed XML — into a clean
     # UsageError (exit 2) rather than letting a raw traceback escape (exit 1).
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            xml = z.read("word/document.xml")  # size/XML-bomb already vetted by _docx_xml_guard
-        root = ET.fromstring(xml)
+            # Sizes and DTDs already vetted by _docx_xml_guard.
+            document = ET.fromstring(z.read("word/document.xml"))
+
+            abstract: Dict[str, Dict[int, Dict[str, Any]]] = {}
+            nums: Dict[str, Dict[str, Any]] = {}
+            numbering_error: Optional[str] = None
+            try:
+                abstract, nums = _parse_docx_numbering(ET.fromstring(z.read("word/numbering.xml")))
+            except KeyError:
+                numbering_error = "word/numbering.xml is absent"
+            except Exception as exc:
+                # A broken numbering.xml leaves the document readable but unnumbered —
+                # that is an unresolved numbering, not an unreadable file.
+                numbering_error = f"word/numbering.xml could not be parsed: {exc}"
+
+            style_numbering: Dict[str, Tuple[str, int]] = {}
+            try:
+                style_numbering = _parse_docx_style_numbering(ET.fromstring(z.read("word/styles.xml")))
+            except Exception:
+                pass  # styles are optional; paragraph-level w:numPr still resolves
     except Exception as exc:
         # The enumerated catch list (BadZipFile/KeyError/ET.ParseError/OSError) is not
         # exhaustive: a valid zip whose word/document.xml exists but has a corrupt DEFLATE
         # payload makes z.read() raise zlib.error (not an OSError subclass). Catch broadly
         # and report a clean UsageError (exit 2), matching _docx_xml_guard's posture.
         raise UsageError(f"cannot read .docx: {exc}")
-    paras: List[str] = []
-    for p in root.iter(w + "p"):
-        text = "".join(t.text or "" for t in p.iter(w + "t")).strip()
-        paras.append(text)
-    return "\n".join(paras)
+
+    lines, numbered, unresolved = _docx_numbered_paragraphs(document, abstract, nums, style_numbering)
+    # A document with no numbered paragraphs needs no numbering.xml. When it does have
+    # them, a missing or broken numbering.xml is the root cause and outranks the
+    # per-paragraph symptom ("no level definition for numId=1").
+    if numbering_error and any(_paragraph_numbering(p, style_numbering) for p in document.iter(_w("p"))):
+        unresolved = numbering_error
+    return "\n".join(lines), Numbering(unresolved is None, numbered, unresolved)
 
 
-def _read_docx(path: Optional[Path], raw: bytes) -> str:
-    """Text from a .docx. Prefers python-docx (the [docx] extra) for fidelity;
-    otherwise a stdlib zipfile/XML reader (always available)."""
+def _read_docx_python_docx(path: Path) -> Optional[str]:
+    """python-docx's paragraph text, or None if the extra isn't installed or it failed."""
+    if importlib.util.find_spec("docx") is None:
+        return None
+    try:
+        mod = importlib.import_module("docx")
+        doc = getattr(mod, "Document")(str(path))
+        return "\n".join((para.text or "").strip() for para in doc.paragraphs)
+    except Exception:
+        return None
+
+
+def _read_docx(path: Optional[Path], raw: bytes) -> Tuple[str, Numbering]:
+    """Text from a .docx via the stdlib zipfile/XML reader.
+
+    python-docx (the [docx] extra) is a fallback, not the preferred path: its
+    `paragraph.text` excludes automatic list numbering just as a naive `w:t` walk does,
+    and its `doc.paragraphs` skips paragraphs nested in tables. Anything it returns is
+    therefore explicitly unresolved.
+    """
     unsafe = _docx_xml_guard(raw)
     if unsafe is not None:
         raise UsageError(f"cannot read .docx: {unsafe}")
-    if path is not None and importlib.util.find_spec("docx") is not None:
-        try:
-            mod = importlib.import_module("docx")
-            document_cls = getattr(mod, "Document")
-            doc = document_cls(str(path))
-            return "\n".join((para.text or "").strip() for para in doc.paragraphs)
-        except Exception:
-            pass  # fall back to the stdlib reader
-    return _read_docx_stdlib(raw)
+    try:
+        return _read_docx_stdlib(raw)
+    except UsageError as exc:
+        fallback = _read_docx_python_docx(path) if path is not None else None
+        if fallback is None:
+            raise
+        return fallback, Numbering(
+            False, 0,
+            f"stdlib reader failed ({exc}); fell back to python-docx, "
+            "which does not resolve automatic numbering",
+        )
 
 
 def _read_pdf(raw: bytes) -> str:
@@ -320,9 +638,10 @@ def _resolve_format(path: Optional[Path], override: str) -> str:
     }.get(suffix, "text")
 
 
-def read_document(target: str, override: str = "auto") -> Tuple[str, str]:
-    """Return (raw_text, format) for a path or '-' (stdin). Raises UsageError on
-    unreadable input."""
+def read_document(target: str, override: str = "auto") -> Tuple[str, str, Optional[Numbering]]:
+    """Return (raw_text, format, numbering) for a path or '-' (stdin). `numbering` is
+    None where automatic numbering is not a concept for the input (.md/.txt/.html/.pdf).
+    Raises UsageError on unreadable input."""
     if target == "-":
         raw = sys.stdin.buffer.read()
         fmt = _resolve_format(None, override)
@@ -340,13 +659,14 @@ def read_document(target: str, override: str = "auto") -> Tuple[str, str]:
         fmt = _resolve_format(path, override)
 
     if fmt == "docx":
-        return _read_docx(path, raw), fmt
+        text, numbering = _read_docx(path, raw)
+        return text, fmt, numbering
     if fmt == "pdf":
-        return _read_pdf(raw), fmt
+        return _read_pdf(raw), fmt, None
     text = raw.decode("utf-8", errors="replace")
     if fmt == "html":
-        return _read_html(text), fmt
-    return text, fmt
+        return _read_html(text), fmt, None
+    return text, fmt, None
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +682,11 @@ class Finding:
     line: int
     excerpt: str
     column: Optional[int] = None
+    # Set when a rule downgraded itself because it could not see what it needed (today:
+    # a .docx whose automatic numbering did not resolve). `lint()` must not let the
+    # configured severity promote such a finding back up. Not serialized: the message
+    # already says why, and the report schema stays as it is.
+    degraded: bool = False
 
     def to_json(self) -> JSONObj:
         obj: JSONObj = {
@@ -474,6 +799,7 @@ class Analysis:
     fmt: str
     headings: List[Heading]
     definitions: Dict[str, List[int]]
+    numbering: Optional[Numbering] = None
 
     def excerpt(self, line: int, max_len: int = 140) -> str:
         if 1 <= line <= len(self.lines):
@@ -482,8 +808,14 @@ class Analysis:
             snippet = ""
         return snippet if len(snippet) <= max_len else snippet[: max_len - 3] + "..."
 
+    @property
+    def numbering_unresolved(self) -> bool:
+        """True when the document has automatic numbering we failed to resolve, so the
+        headings we scanned are not the numbers a reader sees in Word."""
+        return self.numbering is not None and not self.numbering.resolved
 
-def analyze(text: str, fmt: str) -> Analysis:
+
+def analyze(text: str, fmt: str, numbering: Optional[Numbering] = None) -> Analysis:
     lines = text.split("\n")
     return Analysis(
         text=text,
@@ -491,6 +823,7 @@ def analyze(text: str, fmt: str) -> Analysis:
         fmt=fmt,
         headings=scan_headings(lines),
         definitions=scan_definitions(lines),
+        numbering=numbering,
     )
 
 
@@ -601,6 +934,19 @@ _XREF_RE = re.compile(
 )
 
 
+# A .docx whose automatic numbering did not resolve extracts with no visible numbers on
+# its clauses, so both of the rules that reason about numbers are reasoning about a
+# document they never fully saw. They still report — a real defect may be visible in the
+# text that survived — but as a warning that names the blind spot, never as an error.
+_UNRESOLVED_NUMBERING_NOTE = "document uses automatic numbering that was not resolved"
+
+
+def _degrade(finding: Finding, note: str) -> None:
+    finding.severity = SEVERITY_WARNING
+    finding.degraded = True
+    finding.message = f"{finding.message} ({_UNRESOLVED_NUMBERING_NOTE}; {note})"
+
+
 def rule_broken_xref(a: Analysis) -> List[Finding]:
     declared: Dict[str, Set[str]] = {}
     for h in a.headings:
@@ -630,11 +976,14 @@ def rule_broken_xref(a: Analysis) -> List[Finding]:
                 ok = ref in present
             if not ok:
                 label = m.group(1).rstrip("s").title() if m.group(1) != "§" else "Section"
-                out.append(Finding(
+                finding = Finding(
                     "broken-xref", SEVERITY_ERROR,
                     f"cross-reference to {label} {ref} which is not present in the document",
                     i, a.excerpt(i), m.start() + 1,
-                ))
+                )
+                if a.numbering_unresolved:
+                    _degrade(finding, "cross-reference targets could not be verified")
+                out.append(finding)
     return out
 
 
@@ -773,6 +1122,9 @@ def rule_numbering(a: Analysis) -> List[Finding]:
             if ri is not None and ri <= 99:
                 art_items.append((ri, h.line))
     out.extend(_sequence_findings(art_items, "", "article"))
+    if a.numbering_unresolved:
+        for f in out:
+            _degrade(f, "the numbering it would check is not in the extracted text")
     out.sort(key=lambda f: f.line)
     return out
 
@@ -1254,6 +1606,10 @@ def _is_suppressed(f: Finding, per_line: Dict[int, Set[str]], file_level: Set[st
 # ---------------------------------------------------------------------------
 
 
+def _lower_severity(a: str, b: str) -> str:
+    return a if _SEVERITY_RANK[a] <= _SEVERITY_RANK[b] else b
+
+
 def lint(analysis: Analysis, cfg: Config) -> List[Finding]:
     findings: List[Finding] = []
     for rule in RULES:
@@ -1261,7 +1617,10 @@ def lint(analysis: Analysis, cfg: Config) -> List[Finding]:
         if not setting.enabled:
             continue
         for f in rule.check(analysis):
-            f.severity = setting.severity  # config can override severity
+            # Config can override severity — but it must not promote a finding the rule
+            # already downgraded because it couldn't see the document's real numbers.
+            # Config may still lower it further, so take the lower of the two.
+            f.severity = _lower_severity(setting.severity, f.severity) if f.degraded else setting.severity
             findings.append(f)
 
     per_line, file_level = _parse_suppressions(analysis.lines)
@@ -1305,12 +1664,17 @@ def _summary(findings: Sequence[Finding]) -> JSONObj:
     return {"error": errors, "warning": warnings, "total": len(findings), "by_rule": by_rule}
 
 
-def build_json(path: str, fmt: str, findings: Sequence[Finding], fail_on: str, ok: bool) -> JSONObj:
+def build_json(path: str, fmt: str, findings: Sequence[Finding], fail_on: str, ok: bool,
+               numbering: Optional[Numbering] = None) -> JSONObj:
     return {
         "tool": CLI_NAME,
         "version": __version__,
         "path": path,
         "format": fmt,
+        # true when every numbered paragraph resolved (a document with none also
+        # resolves); false when the numbers Word shows are not in the linted text;
+        # null where automatic numbering is not a concept for the input.
+        "numbering_resolved": numbering.resolved if numbering else None,
         "fail_on": fail_on,
         "ok": ok,
         "exit_code": EXIT_OK if ok else EXIT_FINDINGS,
@@ -1400,6 +1764,15 @@ def render_table(path: str, fmt: str, findings: Sequence[Finding]) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _numbering_why(numbering: Optional[Numbering]) -> List[str]:
+    if numbering is None:
+        return []
+    if numbering.resolved:
+        return [f"automatic numbering: resolved ({numbering.numbered_paragraphs} numbered paragraphs)"]
+    return [f"automatic numbering: NOT resolved — {numbering.reason}",
+            "  broken-xref and numbering findings are downgraded to warnings"]
+
+
 def cmd_lint(args: argparse.Namespace) -> int:
     if getattr(args, "json", False) and getattr(args, "sarif", False):
         raise UsageError("--json and --sarif are mutually exclusive")
@@ -1411,9 +1784,9 @@ def cmd_lint(args: argparse.Namespace) -> int:
     tables: List[str] = []
     all_ok = True
     for target in targets:
-        text, fmt = read_document(target, getattr(args, "format", "auto"))
+        text, fmt, numbering = read_document(target, getattr(args, "format", "auto"))
         cfg = load_config(target, args)
-        analysis = analyze(text, fmt)
+        analysis = analyze(text, fmt, numbering)
         findings = lint(analysis, cfg)
         ok = not gate_tripped(findings, fail_on)
         all_ok = all_ok and ok
@@ -1421,10 +1794,11 @@ def cmd_lint(args: argparse.Namespace) -> int:
         _why(args, f"lint {target}",
              f"format={fmt}, {len(analysis.lines)} lines, {len(analysis.headings)} headings, "
              f"{len(analysis.definitions)} defined terms",
+             *_numbering_why(numbering),
              f"rules enabled: {', '.join(enabled)}",
              f"config: {', '.join(cfg.sources) or '(defaults only)'}",
              f"fail-on={fail_on} -> {'clean' if ok else 'gate tripped'}")
-        reports.append(build_json(target, fmt, findings, fail_on, ok))
+        reports.append(build_json(target, fmt, findings, fail_on, ok, numbering))
         sarif_items.append((target, findings))
         tables.append(render_table(target, fmt, findings))
 

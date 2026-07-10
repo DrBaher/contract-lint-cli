@@ -5,7 +5,7 @@
   "description": "The locked, machine-readable report emitted by `contract-lint <file> --json` (and `contract-lint demo --json`). Deterministic and byte-stable: it carries no timestamp so the output diffs cleanly in CI. `ok` and `exit_code` encode the gate decision under `fail_on`; agents branch on the exit code, not on prose. Each finding is { rule, severity, message, line, column?, excerpt }.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["tool", "version", "path", "format", "fail_on", "ok", "exit_code", "summary", "findings"],
+  "required": ["tool", "version", "path", "format", "numbering_resolved", "fail_on", "ok", "exit_code", "summary", "findings"],
   "$defs": {
     "severity": { "enum": ["error", "warning"] }
   },
@@ -14,6 +14,10 @@
     "version": { "type": "string" },
     "path": { "type": "string", "description": "the linted path, or '-' for stdin" },
     "format": { "enum": ["markdown", "text", "html", "docx", "pdf"] },
+    "numbering_resolved": {
+      "type": ["boolean", "null"],
+      "description": "Whether the document's automatic list numbering (Word's w:numPr → numbering.xml) was resolved into the linted text. true: every numbered paragraph resolved — a document with no numbered paragraphs is also true, since nothing to resolve is not a failure to resolve. false: numbering.xml was absent or unparseable, a numFmt was unsupported, or a fallback reader was used — the numbers Word displays are NOT in the linted text, and broken-xref/numbering findings are downgraded to warnings that say so. null: automatic numbering is not a concept for this input (.md/.txt/.html/.pdf/stdin)."
+    },
     "fail_on": { "enum": ["error", "warning", "none"] },
     "ok": { "type": "boolean", "description": "true when no finding is at or above fail_on" },
     "exit_code": { "type": "integer", "enum": [0, 1] },

@@ -3,6 +3,7 @@
   "version": "X.Y.Z",
   "path": "numbering_dates.md",
   "format": "markdown",
+  "numbering_resolved": null,
   "fail_on": "error",
   "ok": false,
   "exit_code": 1,

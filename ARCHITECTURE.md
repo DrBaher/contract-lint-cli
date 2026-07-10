@@ -36,7 +36,7 @@ extract → draft → contract-lint / compare → convert → sign
 |---|---|
 | Constants / Errors | exit codes, severities, config locations; `LintError`/`UsageError`. |
 | Output helpers | color (`NO_COLOR`/`FORCE_COLOR`), `--json`/`_emit_json`, `--why`, UTF-8 stream config. |
-| Document readers | `read_document` + `.html` / `.docx` (stdlib zip/XML, optional python-docx) / `.pdf` (pypdf extra). |
+| Document readers | `read_document` + `.html` / `.docx` (stdlib zip/XML, resolves Word's automatic list numbering) / `.pdf` (pypdf extra). |
 | Findings + analysis | `Finding`, `Heading`, `analyze()` → headings + defined terms shared across rules. |
 | Rules | one `rule_*` per rule id, registered in `RULES` with id/severity/default/description. |
 | Config + suppression | `.contract-lint.json` discovery/merge; inline `contract-lint: disable…` comments. |

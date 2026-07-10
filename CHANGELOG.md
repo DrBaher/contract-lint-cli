@@ -8,6 +8,57 @@ major bump; new optional fields are minor additions.
 
 ## [Unreleased]
 
+### Fixed
+- **`.docx` automatic list numbering is now resolved; `broken-xref` could previously
+  report an error on a correctly-drafted document.** Word stores a numbered paragraph's
+  visible number nowhere in its text — the paragraph carries only a `w:numPr` pointer
+  (`ilvl` + `numId`) and the number is computed at render time from `word/numbering.xml`.
+  Both readers dropped it: the stdlib reader walked `w:t` nodes, and python-docx's
+  `paragraph.text` excludes list numbering just the same. A contract whose operative
+  clauses Word displays as 1–20 was therefore linted as unnumbered prose, so an ordinary
+  in-body cross-reference to "Section 7" had no target and was reported as a
+  **`broken-xref` error — a drafting defect that existed only in our extraction**. (Such a
+  false positive was nearly relayed to a counterparty as a defect in their template.)
+  `rule_numbering` was blind in the same way: it could neither check an auto-numbered list
+  nor report that it hadn't.
+
+  The `.docx` reader now resolves numbering (stdlib-only): `numFmt` `decimal`,
+  `decimalZero`, `lowerLetter`, `upperLetter`, `lowerRoman`, `upperRoman`, `none`; `%1`–`%9`
+  substitution into `lvlText` (so `"%1.%2"` renders `2.1`); `start`, `w:startOverride` and
+  per-level `w:lvlOverride`; `(numId, ilvl)` counters with deeper-level resets; numbering
+  inherited through the `w:pStyle` → `w:basedOn` chain in `styles.xml` (cycle-guarded);
+  Word's repeating letter sequence (`a…z, aa, bb`, not `ab`). Bullets are skipped, which is
+  not a resolution failure. See [docs/reference/docx-numbering.md](docs/reference/docx-numbering.md).
+
+### Added
+- **`numbering_resolved` in the `--json` report** (`true` / `false` / `null`), and a `--why`
+  line carrying the reason and the numbered-paragraph count. `true` means every numbered
+  paragraph resolved — a document with no numbered paragraphs is also `true`, since nothing
+  to resolve is not a failure to resolve. `false` means `numbering.xml` was absent or
+  unparseable, a `numFmt` was unsupported, a level definition was missing, or the fallback
+  reader was used. `null` means numbering isn't a concept for the input.
+- **Rules degrade instead of asserting.** When `numbering_resolved` is `false`, `broken-xref`
+  and `numbering` findings are emitted as **warnings** whose message names the blind spot
+  ("document uses automatic numbering that was not resolved; …") rather than as errors. A
+  configured severity may lower such a finding further but may not promote it back to
+  `error`. Under the default `--fail-on error`, an unresolved document no longer trips CI on
+  cross-references the linter never had the numbers to check.
+
+### Changed
+- **The stdlib zip/XML reader is now the preferred `.docx` path**; the `[docx]` extra
+  (python-docx) is a fallback used only if the stdlib reader fails, and anything it returns
+  is marked `numbering_resolved: false`. python-docx cannot see list numbering and its
+  `doc.paragraphs` also skips paragraphs nested in tables, which the stdlib reader includes.
+  `.docx` reading needs no optional extra and never did; the docs said otherwise.
+- `_docx_xml_guard` now vets `word/numbering.xml` and `word/styles.xml` in addition to
+  `word/document.xml` — resolving numbering means parsing them, so they are attack surface
+  too (DTD/entity declarations refused; decompressed-size cap enforced).
+- `w:tab` and `w:br` inside a paragraph now render as a space rather than being dropped.
+- **Schema (`docs/spec/lint-output.schema.json`):** `numbering_resolved` is a new required
+  property of the report object. The report is always emitted with it, so producers and
+  consumers of the current version are unaffected; validating *older* output against the
+  new schema will fail on the missing key.
+
 ## [0.2.4] - 2026-06-04
 
 ### Fixed

@@ -45,8 +45,10 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-# .docx/.pdf reading is delegated to extract-cli's document backends; the extras pull
-# them in. The core works WITHOUT them (.md/.txt/.html, or text piped on stdin).
+# .pdf reading is delegated to extract-cli's document backend; the extra pulls it in.
+# The core works WITHOUT any extra (.md/.txt/.html/.docx, or text piped on stdin).
+# `[docx]` is kept for compatibility and as a fallback reader only: python-docx cannot
+# see Word's automatic list numbering, so the stdlib reader is the preferred .docx path.
 docx = ["extract-cli[docx]"]
 pdf = ["extract-cli[pdf]"]
 # Reserved for a future opt-in LLM rule (off by default, never on a hot path); uses the

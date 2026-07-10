@@ -3,6 +3,7 @@
   "version": "X.Y.Z",
   "path": "flawed_msa.md",
   "format": "markdown",
+  "numbering_resolved": null,
   "fail_on": "error",
   "ok": false,
   "exit_code": 1,
