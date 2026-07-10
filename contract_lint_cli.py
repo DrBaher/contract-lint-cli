@@ -288,6 +288,26 @@ def _w_val(el: Any, default: Any = None) -> Any:
     return default if val is None else val
 
 
+def _safe_int(raw: Any, default: int) -> int:
+    """Coerce an XML attribute value to an int, returning `default` when it is absent or
+    not numeric. A legitimate WordprocessingML level/start/override is always an integer,
+    but a corrupt or hostile .docx can put anything there; `int('x')` would otherwise
+    escape as an unguarded ValueError (exit 1) from the paragraph walk, which runs outside
+    the reader's malformed-XML guard. Coerce defensively so a bad value degrades to a
+    best-effort default instead of crashing the read."""
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _w_int(el: Any, default: int) -> int:
+    """`_safe_int` of an element's `w:val` attribute."""
+    return _safe_int(_w_val(el), default)
+
+
 @dataclasses.dataclass(frozen=True)
 class Numbering:
     """Whether a document's automatic numbering made it into the extracted text.
@@ -364,10 +384,10 @@ def _parse_docx_numbering(root: Any) -> Tuple[Dict[str, Dict[int, Dict[str, Any]
             continue  # unaddressable: nothing can point at it
         levels: Dict[int, Dict[str, Any]] = {}
         for lvl in anum.findall(_w("lvl")):
-            levels[int(lvl.get(_w("ilvl"), "0"))] = {
+            levels[_safe_int(lvl.get(_w("ilvl")), 0)] = {
                 "fmt": _w_val(lvl.find(_w("numFmt")), "decimal"),
                 "text": _w_val(lvl.find(_w("lvlText")), ""),
-                "start": int(_w_val(lvl.find(_w("start")), "1") or 1),
+                "start": _w_int(lvl.find(_w("start")), 1),
             }
         abstract[aid] = levels
 
@@ -380,7 +400,7 @@ def _parse_docx_numbering(root: Any) -> Tuple[Dict[str, Dict[int, Dict[str, Any]
             spec: Dict[str, Any] = {}
             start_override = override.find(_w("startOverride"))
             if start_override is not None:
-                spec["start"] = int(_w_val(start_override, "1") or 1)
+                spec["start"] = _w_int(start_override, 1)
             lvl = override.find(_w("lvl"))
             if lvl is not None:
                 fmt = _w_val(lvl.find(_w("numFmt")))
@@ -390,7 +410,7 @@ def _parse_docx_numbering(root: Any) -> Tuple[Dict[str, Dict[int, Dict[str, Any]
                 if lvl_text is not None:
                     spec["text"] = lvl_text
             if spec:
-                entry["overrides"][int(override.get(_w("ilvl"), "0"))] = spec
+                entry["overrides"][_safe_int(override.get(_w("ilvl")), 0)] = spec
         nums[nid] = entry
 
     return abstract, nums
@@ -413,7 +433,7 @@ def _parse_docx_style_numbering(root: Any) -> Dict[str, Tuple[str, int]]:
         if numpr is not None:
             num_id = _w_val(numpr.find(_w("numId")))
             if num_id:
-                raw[sid] = (num_id, int(_w_val(numpr.find(_w("ilvl")), "0") or 0))
+                raw[sid] = (num_id, _w_int(numpr.find(_w("ilvl")), 0))
 
     def resolve(sid: str, seen: Tuple[str, ...] = ()) -> Optional[Tuple[str, int]]:
         if sid in raw:
@@ -437,7 +457,7 @@ def _paragraph_numbering(para: Any, style_numbering: Dict[str, Tuple[str, int]])
     if numpr is not None:
         num_id = _w_val(numpr.find(_w("numId")))
         if num_id:
-            return num_id, int(_w_val(numpr.find(_w("ilvl")), "0") or 0)
+            return num_id, _w_int(numpr.find(_w("ilvl")), 0)
     style_id = _w_val(ppr.find(_w("pStyle")))
     if style_id:
         return style_numbering.get(style_id)

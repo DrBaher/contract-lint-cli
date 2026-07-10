@@ -292,6 +292,28 @@ def test_stdlib_failure_without_a_fallback_still_raises(
         cl.read_document(str(path))
 
 
+def test_non_numeric_ilvl_does_not_crash_the_read(tmp_path: Path) -> None:
+    """A corrupt/hostile paragraph level must degrade to a clean read, not escape as an
+    unguarded ValueError (which the CLI's contract would mis-report as exit 1)."""
+    nx = numbering_xml({0: [level(0, "decimal", "%1.")]}, {1: 0})
+    body = ('<w:p><w:pPr><w:numPr><w:numId w:val="1"/><w:ilvl w:val="x"/>'
+            '</w:numPr></w:pPr><w:r><w:t>Clause</w:t></w:r></w:p>')
+    # Must not raise; the paragraph text is still extracted.
+    text, _, numbering = read(tmp_path, body, nx)
+    assert "Clause" in text
+    assert isinstance(numbering.resolved, bool)
+
+
+def test_non_numeric_level_start_does_not_crash(tmp_path: Path) -> None:
+    nx = (f'<?xml version="1.0"?><w:numbering {W}>'
+          '<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0">'
+          '<w:start w:val="oops"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/>'
+          '</w:lvl></w:abstractNum>'
+          '<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>')
+    text, _, _ = read(tmp_path, para("Clause", 1, 0), nx)
+    assert text == "1. Clause"  # a bad start degrades to the default of 1
+
+
 def test_numbering_xml_declaring_a_dtd_is_refused(tmp_path: Path) -> None:
     """The billion-laughs guard must cover every XML part we parse, not just document.xml."""
     path = build(tmp_path / "bomb.docx", para("Clause", 1, 0),
