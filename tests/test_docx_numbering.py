@@ -322,6 +322,16 @@ def test_numbering_xml_declaring_a_dtd_is_refused(tmp_path: Path) -> None:
         cl.read_document(str(path))
 
 
+def test_dtd_after_a_large_prolog_comment_is_still_refused(tmp_path: Path) -> None:
+    """A DTD hidden behind >64KB of prolog padding must not slip past the guard: the
+    scan covers the whole part, not a fixed-size head window."""
+    padding = "<!-- " + ("x" * (128 * 1024)) + " -->"
+    bomb = f'<?xml version="1.0"?>{padding}<!DOCTYPE x [<!ENTITY a "boom">]><w:numbering/>'
+    path = build(tmp_path / "bomb.docx", para("Clause", 1, 0), bomb)
+    with pytest.raises(cl.UsageError, match="numbering.xml"):
+        cl.read_document(str(path))
+
+
 # ---------------------------------------------------------------------------
 # The trigger case, and rules that degrade rather than assert
 # ---------------------------------------------------------------------------

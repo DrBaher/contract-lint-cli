@@ -245,12 +245,17 @@ def _docx_xml_guard(raw: bytes) -> Optional[str]:
             for name in _DOCX_XML_PARTS:
                 if name not in names:
                     continue  # numbering.xml/styles.xml are optional
-                info = z.getinfo(name)
-                if info.file_size > MAX_DECOMPRESSED_BYTES:
-                    return f"{name} decompresses to {info.file_size} bytes (over cap)"
+                # Read the whole part, but never more than the cap: a zip header can
+                # understate the decompressed size, so `file_size` is not a trustworthy
+                # bound on its own — the bounded read is what actually caps memory.
                 with z.open(name) as f:
-                    head = f.read(65536)  # a DTD can only be declared in the prolog
-                if re.search(rb"<!DOCTYPE|<!ENTITY", head, re.IGNORECASE):
+                    content = f.read(MAX_DECOMPRESSED_BYTES + 1)
+                if len(content) > MAX_DECOMPRESSED_BYTES:
+                    return f"{name} decompresses past the {MAX_DECOMPRESSED_BYTES}-byte cap"
+                # Scan the ENTIRE part, not just the prolog head: a DTD must sit in the
+                # prolog, but the prolog may be padded with an arbitrarily large comment
+                # before it, so a fixed-size head window can be jumped.
+                if re.search(rb"<!DOCTYPE|<!ENTITY", content, re.IGNORECASE):
                     return f"{name.rpartition('/')[2]} declares a DTD/entities (XML-bomb guard)"
     except Exception:
         return None  # not a valid zip -> let the reader report it
