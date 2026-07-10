@@ -13,7 +13,7 @@ produces the same byte-for-byte report, so you can diff it in CI.
 - **Stdlib only.** Zero runtime dependencies; the core is fully functional with nothing installed.
 - **Single file.** `contract_lint_cli.py` — no DB, no daemon, no SaaS.
 - **CI-gateable.** `--check` (exit-code only), `--fail-on error|warning|none`, `--json`, and `--sarif` for code-scanning.
-- **Reads the text.** `.md` / `.txt` / `.html` natively; `.docx` / `.pdf` via optional extras. It lints the *original* numbering, cross-references, and defined-term casing — not a normalized model.
+- **Reads the text.** `.md` / `.txt` / `.html` / `.docx` natively; `.pdf` via an optional extra. It lints the *original* numbering, cross-references, and defined-term casing — not a normalized model, and for `.docx` including the list numbers Word computes at render time rather than stores.
 
 > **Part of the contract-ops suite — optional.** contract-lint stands on its own, but it
 > also composes with the [contract-ops CLI suite](https://github.com/DrBaher): it is the
@@ -58,14 +58,14 @@ contract-lint your-contract.md --check && echo "ready to sign"   # exit-code gat
 ## Install
 
 ```bash
-pip install contract-lint                  # zero dependencies, fully functional on .md/.txt/.html
-pip install "contract-lint[docx]"          # + .docx reading (pulls in extract-cli's Word backend)
+pip install contract-lint                  # zero dependencies, fully functional on .md/.txt/.html/.docx
 pip install "contract-lint[pdf]"           # + .pdf reading (pulls in extract-cli's PDF backend)
 ```
 
-Requires Python 3.9+. `.docx`/`.pdf` reading is delegated to
-[`extract-cli`](https://github.com/DrBaher/extract-cli)'s document backends; the core
-works **without** them on `.md` / `.txt` / `.html` (or text piped on stdin). You can also
+Requires Python 3.9+. `.md` / `.txt` / `.html` / `.docx` (and text piped on stdin) read with
+no dependencies at all — the `.docx` reader resolves Word's automatic list numbering, which
+python-docx cannot see. Only `.pdf` reading is delegated to
+[`extract-cli`](https://github.com/DrBaher/extract-cli)'s document backend. You can also
 convert first: `extract contract.pdf | contract-lint -`.
 
 ---

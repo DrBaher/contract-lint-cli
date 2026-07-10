@@ -56,7 +56,7 @@ contract-lint reads the document's **text**:
 | Invocation | Behavior |
 |---|---|
 | `contract-lint file.md` (`.md`/`.txt`/`.html`) | Read natively (stdlib), no extras needed. |
-| `contract-lint file.docx` | Stdlib zip/XML reader; the `[docx]` extra (extract-cli's Word backend) improves fidelity. |
+| `contract-lint file.docx` | Stdlib zip/XML reader, which resolves Word's automatic list numbering (see [reference/docx-numbering.md](reference/docx-numbering.md)). The `[docx]` extra is only a fallback — python-docx cannot see list numbers. |
 | `contract-lint file.pdf` | Needs the `[pdf]` extra (extract-cli's PDF backend); else a clear error. |
 | `… \| contract-lint - --format md` | Read text piped on stdin (draft-cli output, `extract` text, anything). |
 

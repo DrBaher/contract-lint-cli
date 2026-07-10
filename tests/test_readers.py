@@ -15,7 +15,7 @@ def test_markdown_and_text(tmp_path: Path) -> None:
     for ext, fmt in ((".md", "markdown"), (".txt", "text"), (".markdown", "markdown")):
         f = tmp_path / f"c{ext}"
         f.write_text("Fee is {{x}}.\n", encoding="utf-8")
-        text, detected = cl.read_document(str(f))
+        text, detected, _ = cl.read_document(str(f))
         assert detected == fmt
         assert "{{x}}" in text
 
@@ -28,7 +28,7 @@ def test_html_strips_tags_and_keeps_structure(tmp_path: Path) -> None:
         "</body></html>",
         encoding="utf-8",
     )
-    text, fmt = cl.read_document(str(f))
+    text, fmt, _ = cl.read_document(str(f))
     assert fmt == "html"
     assert "{{amt}}" in text and "Section 5.5" in text
     assert "<style>" not in text and ".x{}" not in text
@@ -39,7 +39,7 @@ def test_docx_stdlib_reader(tmp_path: Path) -> None:
         "Master Agreement effective March 1, 2026.",
         "Fee is {{rate}} per hour. See Section 9.9 for details.",
     ])
-    text, fmt = cl.read_document(str(f))
+    text, fmt, _ = cl.read_document(str(f))
     assert fmt == "docx"
     assert "{{rate}}" in text and "Section 9.9" in text
 
@@ -154,12 +154,12 @@ def test_pdf_without_extra_errors_clearly(tmp_path: Path, capsys: pytest.Capture
 def test_format_override(tmp_path: Path) -> None:
     f = tmp_path / "weird.contract"
     f.write_text("<p>Fee is {{x}}.</p>", encoding="utf-8")
-    text, fmt = cl.read_document(str(f), override="html")
+    text, fmt, _ = cl.read_document(str(f), override="html")
     assert fmt == "html" and "<p>" not in text
 
 
 def test_unknown_extension_treated_as_text(tmp_path: Path) -> None:
     f = tmp_path / "c.rtf"
     f.write_text("Plain {{x}} content.\n", encoding="utf-8")
-    text, fmt = cl.read_document(str(f))
+    text, fmt, _ = cl.read_document(str(f))
     assert fmt == "text"

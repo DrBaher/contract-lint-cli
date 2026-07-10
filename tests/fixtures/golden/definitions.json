@@ -3,6 +3,7 @@
   "version": "X.Y.Z",
   "path": "definitions.md",
   "format": "markdown",
+  "numbering_resolved": null,
   "fail_on": "error",
   "ok": true,
   "exit_code": 0,

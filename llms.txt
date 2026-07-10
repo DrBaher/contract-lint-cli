@@ -18,8 +18,7 @@ Suite: https://cli.drbaher.com/
 ## Install
 
 ```bash
-pip install contract-lint                  # core (.md / .txt / .html, all rules)
-pip install "contract-lint[docx]"          # + .docx reading (extract-cli backend)
+pip install contract-lint                  # core (.md / .txt / .html / .docx, all rules)
 pip install "contract-lint[pdf]"           # + .pdf reading (extract-cli backend)
 ```
 
