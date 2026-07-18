@@ -8,6 +8,17 @@ major bump; new optional fields are minor additions.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-07-18
+
+### Fixed
+- **`placeholder` missed `[Party B]`-style fill-ins.** The bracket-fill heuristic required
+  every word inside the brackets to be at least two letters, so a single-letter word
+  (`[Party B]`, `[Party B Jurisdiction]`, `[Exhibit A Reference]`) silently defeated the
+  rule — despite `[Party A]`/`[Party B]` being the contract-ops suite's own canonical
+  placeholder style (draft-cli's demo uses exactly that form). Words inside a bracketed
+  fill-in may now be a single capital letter. Markdown links, footnotes (`[1]`), and
+  lowercase section refs (`[see 2]`) remain exempt.
+
 ## [0.2.5] - 2026-07-18
 
 ### Fixed

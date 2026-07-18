@@ -36,6 +36,17 @@ def test_placeholder_variants() -> None:
     assert all(f.severity == "error" for f in fs)
 
 
+def test_placeholder_single_letter_words() -> None:
+    # [Party A]/[Party B] is the suite's canonical placeholder style (draft-cli demo);
+    # a single-letter word inside the brackets must not defeat the rule.
+    text = "Between Acme GmbH and [Party B], organized in [Party B Jurisdiction].\n"
+    fs = [f for f in findings(text) if f.rule == "placeholder"]
+    assert len(fs) == 2
+    # ...while markdown links and footnotes stay exempt.
+    clean = "See [Section Two](#s2) and a footnote [1] and [see 2].\n"
+    assert not [f for f in findings(clean) if f.rule == "placeholder"]
+
+
 def test_broken_xref_detects_dangling_and_passes_valid() -> None:
     text = "# T\n\n## 1. One\n\n## 2. Two\nSee Section 2 and Section 9.\n"
     fs = [f for f in findings(text) if f.rule == "broken-xref"]

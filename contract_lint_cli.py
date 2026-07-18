@@ -33,7 +33,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -863,10 +863,11 @@ _PLACEHOLDER_PATTERNS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
     ("token", re.compile(r"\b(?:TBD|TBA|FIXME|TKTK|\[?TODO\]?)\b")),
     ("empty-bracket", re.compile(r"\[\s*(?:[•·*xX]|\s)\s*\]")),
 )
-# Bracketed fill-ins like [Party Name], [Effective Date], [INSERT DATE] — but not
-# markdown links [text](url), footnotes [1]/[a], or section refs [see 2].
+# Bracketed fill-ins like [Party Name], [Party B], [Effective Date], [INSERT DATE] — but
+# not markdown links [text](url), footnotes [1]/[a], or section refs [see 2]. Words may be
+# a single capital letter: [Party B] is the suite's canonical placeholder style.
 _BRACKET_FILL_RE = re.compile(r"\[([A-Z][A-Za-z][^\]\n]{0,58})\](?!\()")
-_BRACKET_FILL_OK = re.compile(r"^(?:[A-Z][A-Za-z]+ ?)+$|INSERT|TODO|NAME|DATE|PARTY|AMOUNT|ADDRESS")
+_BRACKET_FILL_OK = re.compile(r"^(?:[A-Z][A-Za-z]* ?)+$|INSERT|TODO|NAME|DATE|PARTY|AMOUNT|ADDRESS")
 
 
 def rule_placeholder(a: Analysis) -> List[Finding]:
