@@ -33,7 +33,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 
 # ---------------------------------------------------------------------------
 # Constants

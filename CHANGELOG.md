@@ -8,6 +8,8 @@ major bump; new optional fields are minor additions.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-18
+
 ### Fixed
 - **`.docx` automatic list numbering is now resolved; `broken-xref` could previously
   report an error on a correctly-drafted document.** Word stores a numbered paragraph's
