@@ -94,6 +94,30 @@ def test_parens_definition_variants_still_match() -> None:
     assert cl.scan_definitions(['(  "Spaced")']) == {"Spaced": [1]}
 
 
+def test_parens_definition_keyword_comma_is_optional_for_every_keyword() -> None:
+    # The optional comma used to be attached to `collectively`/`together`/
+    # `individually` only, so `(each, a "X")` -- the standard way to define a
+    # singular alongside a collective -- was not recognised as a definition at all.
+    for line, term in [
+        ('Each of them is (each, a "Purchaser") hereunder.', "Purchaser"),
+        ('Each of them is (each, the "Holder") hereunder.', "Holder"),
+        ('They are (individually, a "Seller") hereunder.', "Seller"),
+        ('They are (together, the "Group") hereunder.', "Group"),
+        ('They are (collectively, the "Buyers") hereunder.', "Buyers"),
+    ]:
+        assert cl.scan_definitions([line]) == {term: [1]}, line
+
+    # Without the comma every keyword must keep working exactly as before.
+    for line, term in [
+        ('They are (each a "Party") hereunder.', "Party"),
+        ('They are (each an "Owner") hereunder.', "Owner"),
+        ('It is (a "Notice") hereunder.', "Notice"),
+        ('It is (the "Agreement") hereunder.', "Agreement"),
+        ('It is (this "Deed") hereunder.', "Deed"),
+    ]:
+        assert cl.scan_definitions([line]) == {term: [1]}, line
+
+
 def test_definition_scan_no_redos_on_pathological_line() -> None:
     # Regression for catastrophic backtracking in _DEFN_PARENS_RE: an open paren
     # followed by a long whitespace run and no closing quote used to take ~tens of

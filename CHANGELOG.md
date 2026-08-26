@@ -8,6 +8,21 @@ major bump; new optional fields are minor additions.
 
 ## [Unreleased]
 
+### Fixed
+- **`(each, a "X")` was not recognised as a definition (`_DEFN_PARENS_RE`).** The optional
+  trailing comma in the repeatable keyword group was attached to `collectively`, `together`
+  and `individually` only, not to `the`, `this`, `each` or `a`/`an`. So
+  `(collectively, a "X")` parsed and `(each, a "X")` did not — the standard construct for
+  naming a singular alongside a collective (`the Purchasers ... (each, a "Purchaser")`). A
+  term defined only that way was reported by `undefined-term` as used-but-never-defined, and
+  its real `unused-definition` finding was suppressed, since the term never entered the
+  definition map. The comma now sits outside the alternation
+  (`(?:(?:the|this|each|an?|collectively|together|individually),?\s+)*`), so every keyword
+  accepts it. Strictly wider: no construct that matched before stops matching. The 0.2.2
+  ReDoS invariant is preserved — whitespace remains a separator after a keyword and is never
+  a standalone repeatable alternative — and `("` + 5,000 spaces`)` still scans in under a
+  millisecond.
+
 ## [0.2.6] - 2026-07-18
 
 ### Fixed
