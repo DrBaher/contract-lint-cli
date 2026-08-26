@@ -790,7 +790,7 @@ def scan_headings(lines: Sequence[str]) -> List[Heading]:
 
 # Definition constructs: (the "X") / ("X") / "X" means / "X" shall mean / "X" refers to.
 _DEFN_PARENS_RE = re.compile(
-    r"""\(\s*(?:(?:the|this|each|an?|collectively,?|together,?|individually,?)\s+)*
+    r"""\(\s*(?:(?:the|this|each|an?|collectively|together|individually),?\s+)*
         ["“]([A-Z][\w&.,'’\-/ ]{1,60}?)["”]\s*\)""",
     re.VERBOSE,
 )
